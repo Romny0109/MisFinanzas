@@ -1718,7 +1718,11 @@ function guardarConfig(){
   aplicarSecciones();
   PERIODOS = calcPeriodosDesdeHoy();
   S.periodoIdx = 0;
-  closeModal('m-cfg'); save(); renderAll();
+  closeModal('m-cfg');
+  save();
+  // Guardar inmediatamente a Supabase para que el tema sincronice entre dispositivos
+  saveConfigDB().catch(console.warn);
+  renderAll();
 }
 
 // SERVICIOS

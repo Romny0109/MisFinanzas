@@ -83,11 +83,34 @@ async function loginLocal(){
 }
 
 function registrarSessionListeners(){
-  // Cerrar sesión al cerrar pestaña/navegador
-  window.addEventListener('beforeunload', ()=>{
-    localStorage.removeItem('mf_session');
+  // Solo cerrar sesión si el usuario cierra/recarga la pestaña de verdad
+  // NO cerrar en swipe-up, cambio de app, o cuando la pantalla se apaga
+  let isRealClose = false;
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState === 'hidden'){
+      // Guardar timestamp de cuando se fue a background
+      if(UID) localStorage.setItem('mf_bg_time', Date.now());
+    } else {
+      // Volvió a la app — verificar si pasaron más de 15 min
+      const bgTime = parseInt(localStorage.getItem('mf_bg_time') || '0');
+      if(bgTime && UID){
+        const elapsed = Date.now() - bgTime;
+        if(elapsed > 15 * 60 * 1000){
+          cerrarSesion();
+          return;
+        }
+      }
+      localStorage.removeItem('mf_bg_time');
+    }
   });
-  // Inactividad — cerrar sesión tras 15 min
+  // Solo borrar sesión si fue un cierre real (no swipe-up ni cambio de app)
+  window.addEventListener('pagehide', (e)=>{
+    if(!e.persisted){
+      // persisted=false significa que la página se está destruyendo de verdad
+      localStorage.removeItem('mf_session');
+    }
+  });
+  // Inactividad — cerrar sesión tras 15 min sin tocar la app
   let inactivityTimer;
   function resetInactivityTimer(){
     clearTimeout(inactivityTimer);
@@ -346,7 +369,10 @@ function abrirAdmin(){
       mostrarApp();
       cargarDatosUsuario();
 
-      // Timer auto-guardado cada 60s
+      // Autosave silencioso a Supabase cada 10 segundos
+      setInterval(()=>{ if(UID) saveConfigDB().catch(console.warn); }, 10000);
+
+      // Timer cambio de periodo cada 60s
       setInterval(()=>{
         updateDates();
         const p = PERIODOS[S.periodoIdx];

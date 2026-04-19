@@ -415,6 +415,10 @@ html.font-sz-1{zoom:1.25}
 html.font-sz-2{zoom:1.50}
 html.font-sz-3{zoom:2.00}
 html.font-sz-4{zoom:2.50}
+html.font-sz-1 body,html.font-sz-2 body,html.font-sz-3 body,html.font-sz-4 body{overflow-x:hidden}
+@media(orientation:landscape){
+  html.font-sz-1 .desktop-wrapper,html.font-sz-2 .desktop-wrapper,html.font-sz-3 .desktop-wrapper,html.font-sz-4 .desktop-wrapper{overflow-x:hidden;width:100%}
+}
 @supports not (zoom:1){
   html.font-sz-1{transform:scale(1.25);transform-origin:top left;width:calc(100%/1.25)}
   html.font-sz-2{transform:scale(1.50);transform-origin:top left;width:calc(100%/1.50)}

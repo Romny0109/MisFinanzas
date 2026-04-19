@@ -103,13 +103,8 @@ function registrarSessionListeners(){
       localStorage.removeItem('mf_bg_time');
     }
   });
-  // Solo borrar sesión si fue un cierre real (no swipe-up ni cambio de app)
-  window.addEventListener('pagehide', (e)=>{
-    if(!e.persisted){
-      // persisted=false significa que la página se está destruyendo de verdad
-      localStorage.removeItem('mf_session');
-    }
-  });
+  // La sesión persiste en localStorage — sobrevive recargas y swipe-up
+  // Solo se elimina al hacer cerrar sesión manualmente o tras 15 min inactivo
   // Inactividad — cerrar sesión tras 15 min sin tocar la app
   let inactivityTimer;
   function resetInactivityTimer(){

@@ -77,7 +77,8 @@ async function loadFromSupabase(silencioso=false){
     if(data) S.servicios = data.map(r=>({
       id:r.id, concepto:r.concepto, monto:parseFloat(r.monto),
       cadacuanto:r.cadacuanto||1, fecha:r.fecha||'',
-      diaPago:r.dia_pago||1, fechaAgregado:r.fecha||''
+      diaPago:r.dia_pago||1, fechaAgregado:r.fecha||'',
+      proxPago:r.prox_pago||''
     }));
   } catch(e){ console.warn('servicios load fail:', e); }
 
@@ -195,7 +196,7 @@ async function saveSvc(s){
     const {data} = await supa.from('servicios').insert({
       user_id: UID, concepto: s.concepto, monto: s.monto,
       cadacuanto: s.cadacuanto||1, fecha: s.fechaAgregado||'',
-      dia_pago: s.diaPago||1
+      dia_pago: s.diaPago||1, prox_pago: s.proxPago||''
     }).select().single();
     if(data) s.id = data.id;
   } catch(e){ console.warn('saveSvc:', e); }

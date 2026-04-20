@@ -135,14 +135,15 @@ async function cargarDatosUsuario(){
   if(!S.sueldoPorPeriodo) S.sueldoPorPeriodo = {};
   aplicarTema(S.tema);
   aplicarSecciones();
-  // Intentar cargar desde Supabase (sobreescribe localStorage si hay datos)
-  try { await loadFromSupabase(false); } catch(e){ console.warn('Supabase load failed, usando caché:', e); }
+  // Cargar desde Supabase — SIEMPRE tiene prioridad sobre caché local
+  try {
+    await loadFromSupabase(false);
+    // El tema de Supabase ya se aplicó dentro de loadFromSupabase
+  } catch(e){ console.warn('Supabase load failed, usando caché:', e); }
   // Re-apply defaults after Supabase load
   if(!S.otrosGastos) S.otrosGastos = [];
   if(!S.secciones) S.secciones = {principal:true,servicios:true,extras:true,tdc:true,msi:true,deudas:true,otros:true,ahorro:true};
   if(!S.sueldoPorPeriodo) S.sueldoPorPeriodo = {};
-  // Re-aplicar tema y secciones con datos de Supabase
-  aplicarTema(S.tema);
   aplicarSecciones();
   S.fontSize = parseInt(localStorage.getItem('mf_fontSize_'+UID))||0;
   aplicarFontSize(S.fontSize);
@@ -168,12 +169,16 @@ async function cargarDatosUsuario(){
 
 // ── PANTALLA DE LOGIN ─────────────────────────────────────
 function mostrarPantallaLogin(){
+  const splash = document.getElementById('splash-init');
+  if(splash) splash.style.display='none';
   document.getElementById('app-wrapper').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   id('login-user').value=''; id('login-pass').value='';
   id('login-error').style.display='none';
 }
 function mostrarApp(){
+  const splash = document.getElementById('splash-init');
+  if(splash) splash.style.display='none';
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-wrapper').style.display = '';
   if(CURRENT_USER){
@@ -349,11 +354,28 @@ function abrirAdmin(){
 // ═══════════════════════════════════════════════════════
 
 (async function init(){
+  // Aplicar tema guardado en caché local INMEDIATAMENTE para evitar flash
+  const sessionId = localStorage.getItem('mf_session');
+  if(sessionId){
+    const cachedData = localStorage.getItem('finanzas_'+sessionId);
+    if(cachedData){
+      try{
+        const cached = JSON.parse(cachedData);
+        if(cached.tema && window.aplicarTema) aplicarTema(cached.tema);
+        else if(cached.tema){
+          // aplicarTema aún no existe, aplicar clase directo
+          document.body.classList.remove('theme-oscuro','theme-claro');
+          if(cached.tema==='oscuro') document.body.classList.add('theme-oscuro');
+          else if(cached.tema==='claro') document.body.classList.add('theme-claro');
+        }
+      }catch(e){}
+    }
+  }
+
   // Inicializar usuarios (crea admin por defecto si no existen)
   await initUsers();
 
   // Intentar restaurar sesión
-  const sessionId = localStorage.getItem('mf_session');
   if(sessionId){
     const users = await getUsers();
     const user = users.find(u=>u.id===sessionId && u.activo);

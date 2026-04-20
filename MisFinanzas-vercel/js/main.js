@@ -129,6 +129,8 @@ async function loadFromSupabase(silencioso=false){
     }));
 
     localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+    // Aplicar tema de Supabase inmediatamente — siempre tiene prioridad sobre caché local
+    if(typeof aplicarTema === 'function') aplicarTema(S.tema || 'clasico');
   } catch(e){
     console.warn('Error cargando Supabase, usando caché local:', e);
   }
@@ -1667,6 +1669,15 @@ function aplicarFontSize(level){
   const html = document.documentElement;
   html.classList.remove('font-sz-1','font-sz-2','font-sz-3','font-sz-4');
   if(level > 0) html.classList.add('font-sz-'+level);
+  // En móvil (pantalla pequeña), usar font-size base en lugar de zoom para mejor compatibilidad iOS
+  const isMobile = window.innerWidth < 768;
+  if(isMobile){
+    const scales = {0:100, 1:125, 2:150, 3:200, 4:250};
+    const pct = scales[level] || 100;
+    html.style.fontSize = pct + '%';
+  } else {
+    html.style.fontSize = '';
+  }
   // Highlight active button
   document.querySelectorAll('.font-sz-btn').forEach(b=>{
     b.classList.toggle('on', parseInt(b.dataset.sz)===level);

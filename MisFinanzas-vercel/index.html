@@ -137,18 +137,19 @@
           <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" title="Borrar último periodo" style="font-size:13px;color:var(--red)">×</button>
         </div>
         <div class="modo-pill" style="cursor:default"><span id="modo-lbl-dt">Quincenal</span></div>
-        <div style="position:relative;margin-left:auto">
-          <button id="profile-btn-dt" onclick="toggleProfileMenu()" style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:5px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer;font-family:var(--font)">
-            <span id="profile-name-dt">Usuario</span> ▾
-          </button>
-          <div id="profile-menu-dt" style="display:none;position:absolute;right:0;top:110%;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:160px;z-index:100;box-shadow:0 4px 20px rgba(0,0,0,.3)">
-            <button onclick="abrirCuenta()" class="pm-item">Administrar cuenta</button>
-            <button onclick="abrirConfig()" class="pm-item">Configuración</button>
-            <div id="admin-menu-item-dt" style="display:none"><button onclick="abrirAdmin()" class="pm-item" style="color:var(--amber)">Panel de admin</button></div>
-            <div style="border-top:1px solid var(--border);margin:4px 0"></div>
-            <button onclick="cerrarSesion()" class="pm-item" style="color:var(--red)">Cerrar sesión</button>
-          </div>
-        </div>
+      </div>
+    </div>
+    <!-- Perfil fijo esquina superior derecha (solo desktop) -->
+    <div id="profile-corner" style="display:none;position:fixed;top:12px;right:16px;z-index:999">
+      <button id="profile-btn-dt" onclick="toggleProfileMenuDt()" style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:5px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer;font-family:var(--font)">
+        <span id="profile-name-dt">Usuario</span> ▾
+      </button>
+      <div id="profile-menu-dt" style="display:none;position:absolute;right:0;top:110%;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:160px;z-index:100;box-shadow:0 4px 20px rgba(0,0,0,.3)">
+        <button onclick="abrirCuenta()" class="pm-item">Administrar cuenta</button>
+        <button onclick="abrirConfig()" class="pm-item">Configuración</button>
+        <div id="admin-menu-item-dt" style="display:none"><button onclick="abrirAdmin()" class="pm-item" style="color:var(--amber)">Panel de admin</button></div>
+        <div style="border-top:1px solid var(--border);margin:4px 0"></div>
+        <button onclick="cerrarSesion()" class="pm-item" style="color:var(--red)">Cerrar sesión</button>
       </div>
     </div>
 

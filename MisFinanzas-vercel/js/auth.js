@@ -196,6 +196,9 @@ function mostrarApp(){
     if(id('profile-name-dt')) id('profile-name-dt').textContent = displayName;
     if(id('admin-menu-item')) id('admin-menu-item').style.display = CURRENT_USER.rol==='admin'?'block':'none';
     if(id('admin-menu-item-dt')) id('admin-menu-item-dt').style.display = CURRENT_USER.rol==='admin'?'block':'none';
+    // Mostrar botón de perfil en esquina solo en desktop
+    const profileCorner = id('profile-corner');
+    if(profileCorner) profileCorner.style.display = window.innerWidth >= 1080 ? 'block' : 'none';
     // Sidebar user with dropdown
     const el = document.getElementById('sb-user-info');
     if(el) el.innerHTML = `
@@ -222,17 +225,13 @@ function mostrarApp(){
 // ── PROFILE MENUS ─────────────────────────────────────
 function toggleProfileMenu(){
   const menu = id('profile-menu');
-  const menuDt = id('profile-menu-dt');
+  if(menu) menu.style.display = menu.style.display==='none'?'block':'none';
   const sbMenu = id('sb-profile-menu');
   if(sbMenu) sbMenu.style.display='none';
-  // Decide cuál menú mostrar según el que esté visible
-  if(menuDt && document.getElementById('profile-btn-dt') && window.getComputedStyle(document.getElementById('profile-btn-dt')).display !== 'none'){
-    menuDt.style.display = menuDt.style.display==='none'?'block':'none';
-    if(menu) menu.style.display='none';
-  } else if(menu){
-    menu.style.display = menu.style.display==='none'?'block':'none';
-    if(menuDt) menuDt.style.display='none';
-  }
+}
+function toggleProfileMenuDt(){
+  const menu = id('profile-menu-dt');
+  if(menu) menu.style.display = menu.style.display==='none'?'block':'none';
 }
 function toggleSbProfileMenu(){
   const menu = id('sb-profile-menu');
@@ -241,13 +240,12 @@ function toggleSbProfileMenu(){
   if(hdrMenu) hdrMenu.style.display='none';
 }
 document.addEventListener('click', e=>{
-  // Close both profile menus on outside click
-  ['profile-menu','sb-profile-menu'].forEach(mid=>{
+  ['profile-menu','sb-profile-menu','profile-menu-dt'].forEach(mid=>{
     const menu = id(mid);
     if(!menu) return;
-    const triggers = [id('profile-btn'), document.querySelector('[onclick*="toggleSbProfileMenu"]')];
-    const inside = triggers.some(t=>t&&t.contains(e.target)) || menu.contains(e.target);
-    if(!inside) menu.style.display='none';
+    if(!menu.contains(e.target) && !e.target.closest('[onclick*="toggleProfile"]')){
+      menu.style.display='none';
+    }
   });
 });
 

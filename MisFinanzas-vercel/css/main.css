@@ -237,9 +237,6 @@ html,body{font-family:var(--font);background:var(--bg);color:var(--text);min-hei
 
   /* Hide mobile elements */
   .hdr{display:none}
-  /* Mover botón de perfil original al topbar desktop */
-  #profile-btn{position:fixed;top:10px;right:16px;z-index:500}
-  #profile-menu{position:fixed;top:44px;right:16px;z-index:501}
   .tabs{display:none}
   .app{width:100%;max-width:100%;padding:0;margin:0}
   .scr{padding:0}

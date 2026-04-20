@@ -1311,17 +1311,59 @@ function renderPrincipal(){
     }
   }
 
-  // Historial para métricas
-  const ganTotal = S.historial.reduce((a,h)=>a+(h.totalPerc||0),0)+(snap?0:totalPerc);
-  const gasTotal = S.historial.reduce((a,h)=>a+(h.totalDedu||0),0)+(snap?0:totalDedu);
-  const mesPerc = totalPerc*(S.modo==='QUINCENAL'?2:4.33);
-  const mesDedu = totalDedu*(S.modo==='QUINCENAL'?2:4.33);
-  id('m-mes-g').textContent = mxn(mesPerc);
-  id('m-mes-r').textContent = mxn(mesDedu);
+  // Métricas de mes y año basadas en periodos del historial
+  const p = PERIODOS[S.periodoIdx];
+  const mesActual = p ? p.ini.getMonth() : new Date().getMonth();
+  const anioActual = p ? p.ini.getFullYear() : new Date().getFullYear();
+
+  // Filtrar historial por mes y año
+  let ganMes = 0, gasMes = 0, ganAnio = 0, gasAnio = 0;
+  S.historial.forEach(h=>{
+    // Parsear el periodo label para obtener mes/año
+    // Intentar extraer fecha del campo ini o del label
+    let fecha = null;
+    if(h.ini) fecha = new Date(h.ini+'T12:00:00');
+    if(!fecha || isNaN(fecha)){
+      // Intentar parsear del label (ej: "16-30 Abr 2026" o "16 Abr — 22 Abr 2026")
+      const parts = (h.periodo||'').match(/(\d{4})/);
+      const mesMatch = (h.periodo||'').match(/(Ene|Feb|Mar|Abr|May|Jun|Jul|Ago|Sep|Oct|Nov|Dic)/);
+      if(parts && mesMatch){
+        const yr = parseInt(parts[1]);
+        const mi = MESES.indexOf(mesMatch[1]);
+        fecha = new Date(yr, mi, 1);
+      }
+    }
+    if(!fecha || isNaN(fecha)) return;
+
+    const hMes = fecha.getMonth();
+    const hAnio = fecha.getFullYear();
+
+    // Año
+    if(hAnio === anioActual){
+      ganAnio += (h.totalPerc||0);
+      gasAnio += (h.totalDedu||0);
+    }
+    // Mes (mismo mes Y mismo año)
+    if(hMes === mesActual && hAnio === anioActual){
+      ganMes += (h.totalPerc||0);
+      gasMes += (h.totalDedu||0);
+    }
+  });
+
+  // Sumar periodo actual solo si NO tiene snapshot (no está cerrado)
+  if(!snap){
+    ganMes += totalPerc;
+    gasMes += totalDedu;
+    ganAnio += totalPerc;
+    gasAnio += totalDedu;
+  }
+
+  id('m-mes-g').textContent = mxn(ganMes);
+  id('m-mes-r').textContent = mxn(gasMes);
   id('m-disp').textContent = mxn(disp);
-  id('m-ano-g').textContent = mxn(ganTotal);
-  id('m-ano-r').textContent = mxn(gasTotal);
-  id('m-acum').textContent = mxn(ganTotal-gasTotal);
+  id('m-ano-g').textContent = mxn(ganAnio);
+  id('m-ano-r').textContent = mxn(gasAnio);
+  id('m-acum').textContent = mxn(ganAnio-gasAnio);
 
   if(id('disp-ahorro-acum')){
     const acumHist = S.historial.reduce((a,h)=>a+(h.ahorro||0),0);
@@ -1586,6 +1628,10 @@ function renderAhorroConfig(){
   const perc = calcTotalPerc();
   const pct = S.ahoPct||10;
   const base = Math.round(perc*pct/100);
+  // Si modo porcentaje, recalcular automáticamente
+  if(S.ahoModo === 'pct'){
+    S.ahoMonto = base;
+  }
   id('aho-amt').textContent = mxn(S.ahoMonto||0);
   id('aho-sub').textContent = `de ${mxn(perc)} percepciones`;
   id('pct-sl').value = pct;
@@ -1594,7 +1640,7 @@ function renderAhorroConfig(){
   const dash=163.4;
   id('ring-arc').setAttribute('stroke-dashoffset', (dash-(dash*pct/30)).toFixed(1));
   if(!document.activeElement.isSameNode(id('aho-inp')))
-    id('aho-inp').value = S.ahoMonto||base;
+    id('aho-inp').value = S.ahoMonto||0;
   id('aho-inp').min = base;
 }
 

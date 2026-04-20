@@ -634,12 +634,17 @@
     <div class="frow">
       <div class="fg"><div class="fl">Monto del pago $</div><input class="fi" type="number" id="svc-m" placeholder="350" inputmode="decimal"></div>
       <div class="fg"><div class="fl">Frecuencia</div>
-        <select class="fi" id="svc-n">
+        <select class="fi" id="svc-n" onchange="onSvcFreqChange()">
           <option value="1">Mensual</option>
           <option value="2">Bimestral</option>
           <option value="3">Trimestral</option>
+          <option value="6">Semestral</option>
+          <option value="12">Anual</option>
         </select>
       </div>
+    </div>
+    <div class="frow" id="svc-prox-wrap" style="display:none">
+      <div class="fg"><div class="fl">Fecha del próximo pago</div><input class="fi" type="date" id="svc-prox"></div>
     </div>
     <div class="frow"><div class="fg"><div class="fl">Día de pago (del mes)</div><input class="fi" type="number" id="svc-dia" placeholder="12" min="1" max="31" inputmode="decimal"></div></div>
     <div class="m-footer">

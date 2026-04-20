@@ -198,7 +198,8 @@ html.force-mobile .desktop-wrapper{display:contents!important}
 html.force-mobile .sidebar{display:none!important}
 html.force-mobile .main-content{display:contents!important;height:auto!important;overflow:visible!important}
 html.force-mobile body{overflow:auto!important;height:auto!important}
-html.force-mobile .hdr{display:flex!important}
+html.force-mobile .hdr{display:block!important;padding:16px 16px 0!important}
+html.force-mobile .hdr-top{display:flex!important;align-items:center!important;justify-content:space-between!important}
 html.force-mobile .tabs{display:flex!important}
 html.force-mobile .desktop-topbar{display:none!important}
 html.force-mobile .desktop-only{display:none!important}

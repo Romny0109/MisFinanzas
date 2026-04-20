@@ -1404,6 +1404,10 @@ function renderPrincipal(){
 // ═══════════════════════════════════════════════════════
 // RENDER SERVICIOS
 // ═══════════════════════════════════════════════════════
+function freqLabel(n){
+  const labels = {1:'mensual',2:'bimestral',3:'trimestral',6:'semestral',12:'anual'};
+  return labels[n] || `cada ${n} meses`;
+}
 function renderSvc(){
   const list = id('svc-list');
   const label = S.modo==='QUINCENAL'?'quincena':'semana';
@@ -1413,7 +1417,7 @@ function renderSvc(){
   }
   list.innerHTML = S.servicios.map((s,i)=>{
     const calc = calcSvcEnPeriodo(s);
-    const freq = (s.cadacuanto||1)===1?'mensual':(s.cadacuanto||1)===2?'bimestral':`cada ${s.cadacuanto} meses`;
+    const freq = freqLabel(s.cadacuanto||1);
     const sublbl = calc ? `Q${calc.quincenaActual}/${calc.nTotal}` : '';
     return `<div class="svc">
       <div class="svc-info">
@@ -1847,18 +1851,34 @@ function guardarConfig(){
 }
 
 // SERVICIOS
+function onSvcFreqChange(){
+  const n = parseInt(id('svc-n').value)||1;
+  // Mensual no necesita fecha porque siempre es el próximo mes
+  id('svc-prox-wrap').style.display = n > 1 ? 'block' : 'none';
+  if(n <= 1) id('svc-prox').value = '';
+}
+
 function guardarSvc(){
   const c=id('svc-c').value.trim(), m=parseFloat(id('svc-m').value)||0;
   const n=parseInt(id('svc-n').value)||1;
   const dia=parseInt(id('svc-dia').value)||1;
+  const proxPago=id('svc-prox').value||'';
   if(!c||!m){alert('Concepto y monto son requeridos');return;}
   if(!dia||dia<1||dia>31){alert('Día de pago requerido (1-31)');return;}
+  if(n>1 && !proxPago){alert('Indica la fecha del próximo pago');return;}
   const hoy = new Date(); hoy.setHours(0,0,0,0);
-  const svc={concepto:c, monto:m, cadacuanto:n, diaPago:dia, fechaAgregado:hoy.toISOString().split('T')[0]};
+  let fechaAgregado = hoy.toISOString().split('T')[0];
+  if(proxPago){
+    const proxDate = new Date(proxPago+'T12:00:00');
+    const pagoAnterior = new Date(proxDate.getFullYear(), proxDate.getMonth() - n, proxDate.getDate());
+    fechaAgregado = pagoAnterior.toISOString().split('T')[0];
+  }
+  const svc={concepto:c, monto:m, cadacuanto:n, diaPago:dia, fechaAgregado, proxPago};
   S.servicios.push(svc);
   saveSvc(svc).catch(console.warn);
   save();
   id('svc-c').value=''; id('svc-m').value=''; id('svc-n').value='1'; id('svc-dia').value='';
+  id('svc-prox').value=''; id('svc-prox-wrap').style.display='none';
   closeModal('m-svc'); window.renderSvc(); renderPrincipal();
 }
 function delSvc(i){
@@ -2326,7 +2346,7 @@ window.renderSvc = function(){
   }
   list.innerHTML = S.servicios.map((s,i)=>{
     const calc = calcSvcEnPeriodo(s);
-    const freq = (s.cadacuanto||1)===1?'mensual':(s.cadacuanto||1)===2?'bimestral':`cada ${s.cadacuanto} meses`;
+    const freq = freqLabel(s.cadacuanto||1);
     const sublbl = calc ? `Q${calc.quincenaActual}/${calc.nTotal}` : '';
     return `<div class="svc">
       <div class="svc-info">

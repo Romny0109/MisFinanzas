@@ -1081,54 +1081,75 @@ function calcSvcEnPeriodo(s){
 
   const diaPago = s.diaPago;
   const cadaMeses = s.cadacuanto || 1;
-  const fAgre = s.fechaAgregado ? new Date(s.fechaAgregado+'T12:00:00') : new Date();
-  fAgre.setHours(0,0,0,0);
+  
+  // fechaReal = cuando realmente se agregó el servicio (para el primer ciclo)
+  const fechaReal = s.fechaAgregado ? new Date(s.fechaAgregado+'T12:00:00') : new Date();
+  fechaReal.setHours(0,0,0,0);
+  
+  // Si tiene proxPago, el pago anterior ficticio fue proxPago - cadaMeses
+  // Pero la fecha real de alta es hoy o cuando se creó
+  const tieneProxPago = s.proxPago && s.proxPago !== '';
 
-  // Generate payment dates from fechaAgregado forward
-  // First payment: next occurrence of diaPago after fechaAgregado (or same day)
-  function getNextPayDate(from, offset){
-    let d = new Date(from.getFullYear(), from.getMonth(), diaPago);
-    if(d < from) d = new Date(from.getFullYear(), from.getMonth()+1, diaPago);
-    // Adjust if day doesn't exist
+  function getPayDate(baseDate, offsetMeses){
+    let d = new Date(baseDate.getFullYear(), baseDate.getMonth() + offsetMeses, diaPago);
     const maxD = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
     if(diaPago > maxD) d.setDate(maxD);
-    // Add offset months
-    if(offset > 0){
-      d = new Date(d.getFullYear(), d.getMonth() + offset * cadaMeses, diaPago);
-      const maxD2 = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
-      if(diaPago > maxD2) d.setDate(maxD2);
-    }
     return d;
   }
 
-  // Iterate through payment cycles to find which one covers the current period
-  let desdeConteo = new Date(fAgre);
-  let ciclo = 0;
+  // Generar fechas de pago hacia adelante desde fechaReal
+  // Para mensual: próximo día X después de fechaReal, luego cada cadaMeses
+  // Para otros: si tiene proxPago, usar esa fecha como primer pago
+  let primerPago;
+  if(tieneProxPago){
+    primerPago = new Date(s.proxPago+'T12:00:00');
+    primerPago.setHours(0,0,0,0);
+  } else {
+    // Próxima ocurrencia de diaPago después de fechaReal
+    primerPago = new Date(fechaReal.getFullYear(), fechaReal.getMonth(), diaPago);
+    if(primerPago <= fechaReal) primerPago = new Date(fechaReal.getFullYear(), fechaReal.getMonth()+1, diaPago);
+    const maxD = new Date(primerPago.getFullYear(), primerPago.getMonth()+1, 0).getDate();
+    if(diaPago > maxD) primerPago.setDate(maxD);
+  }
+
+  // Iterar ciclos de pago
+  let desdeConteo = new Date(fechaReal); // primer ciclo empieza desde cuando se agregó
+  let pagoActual = new Date(primerPago);
 
   for(let safety = 0; safety < 200; safety++){
-    const limitePago = getNextPayDate(fAgre, ciclo);
-
-    // If limitePago is before desdeConteo, skip
-    if(limitePago <= desdeConteo){
-      ciclo++;
+    if(pagoActual <= desdeConteo){
+      // Este pago ya pasó, avanzar
+      desdeConteo = new Date(pagoActual);
+      pagoActual = getPayDate(pagoActual, cadaMeses);
       continue;
     }
 
-    const nTotal = Math.max(1, contarDiasCobro(_isoStr(limitePago), _isoStr(desdeConteo)));
+    // Contar quincenas/semanas desde desdeConteo hasta pagoActual
+    const nTotal = Math.max(1, contarDiasCobro(_isoStr(pagoActual), _isoStr(desdeConteo)));
 
+    // ¿El periodo actual cae dentro de este ciclo?
+    if(pFin < desdeConteo){
+      // Periodo es antes de este ciclo — ya pasó
+      return null;
+    }
+    if(pIni > pagoActual){
+      // Periodo es después de este ciclo — avanzar
+      desdeConteo = new Date(pagoActual);
+      pagoActual = getPayDate(pagoActual, cadaMeses);
+      continue;
+    }
+
+    // El periodo cae en este ciclo
     const pIniMenos1 = new Date(pIni); pIniMenos1.setDate(pIniMenos1.getDate()-1);
     const cobrosAntes = contarDiasCobro(_isoStr(pIniMenos1), _isoStr(desdeConteo));
-
-    const quincenasEnRango = contarDiasCobro(_isoStr(limitePago), _isoStr(desdeConteo));
-    if(quincenasEnRango === 0 || cobrosAntes >= nTotal){
-      // This cycle is fully before the period - advance
-      desdeConteo = new Date(limitePago);
-      ciclo++;
+    
+    if(cobrosAntes >= nTotal){
+      desdeConteo = new Date(pagoActual);
+      pagoActual = getPayDate(pagoActual, cadaMeses);
       continue;
     }
 
-    // Current period falls within this cycle
-    const effectiveEnd = pFin < limitePago ? _isoStr(pFin) : _isoStr(limitePago);
+    const effectiveEnd = pFin < pagoActual ? _isoStr(pFin) : _isoStr(pagoActual);
     const cobrosHastaFin = contarDiasCobro(effectiveEnd, _isoStr(desdeConteo));
     const quincenaActual = Math.min(nTotal, Math.max(1, cobrosHastaFin));
 
@@ -1137,7 +1158,7 @@ function calcSvcEnPeriodo(s){
       pagoQuincena: s.monto / nTotal,
       nTotal,
       quincenaActual,
-      proxPago: limitePago
+      proxPago: pagoActual
     };
   }
   // Fallback
@@ -1419,10 +1440,12 @@ function renderSvc(){
     const calc = calcSvcEnPeriodo(s);
     const freq = freqLabel(s.cadacuanto||1);
     const sublbl = calc ? `Q${calc.quincenaActual}/${calc.nTotal}` : '';
+    const proxFecha = calc && calc.proxPago ? calc.proxPago.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'}) : '';
     return `<div class="svc">
       <div class="svc-info">
         <div class="svc-name">${s.concepto}</div>
         <div class="svc-sub">${freq}${s.diaPago?' · día '+s.diaPago:''}${sublbl?' · '+sublbl:''}</div>
+        ${proxFecha?`<div style="font-size:10px;color:var(--text3);margin-top:1px">Próx. pago: ${proxFecha}</div>`:''}
       </div>
       <div class="svc-right">
         <div style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--text2)">${mxn(s.monto)}/${(s.cadacuanto||1)>1?s.cadacuanto+'m':'mes'}</div>
@@ -1867,12 +1890,8 @@ function guardarSvc(){
   if(!dia||dia<1||dia>31){alert('Día de pago requerido (1-31)');return;}
   if(n>1 && !proxPago){alert('Indica la fecha del próximo pago');return;}
   const hoy = new Date(); hoy.setHours(0,0,0,0);
-  let fechaAgregado = hoy.toISOString().split('T')[0];
-  if(proxPago){
-    const proxDate = new Date(proxPago+'T12:00:00');
-    const pagoAnterior = new Date(proxDate.getFullYear(), proxDate.getMonth() - n, proxDate.getDate());
-    fechaAgregado = pagoAnterior.toISOString().split('T')[0];
-  }
+  // fechaAgregado siempre es hoy — es el punto real desde donde se empieza a contar
+  const fechaAgregado = hoy.toISOString().split('T')[0];
   const svc={concepto:c, monto:m, cadacuanto:n, diaPago:dia, fechaAgregado, proxPago};
   S.servicios.push(svc);
   saveSvc(svc).catch(console.warn);

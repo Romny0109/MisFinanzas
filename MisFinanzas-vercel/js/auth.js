@@ -193,12 +193,7 @@ function mostrarApp(){
   if(CURRENT_USER){
     const displayName = `${CURRENT_USER.nombre||''} ${CURRENT_USER.apellido||''}`.trim()||CURRENT_USER.username;
     if(id('profile-name-hdr')) id('profile-name-hdr').textContent = displayName;
-    if(id('profile-name-dt')) id('profile-name-dt').textContent = displayName;
     if(id('admin-menu-item')) id('admin-menu-item').style.display = CURRENT_USER.rol==='admin'?'block':'none';
-    if(id('admin-menu-item-dt')) id('admin-menu-item-dt').style.display = CURRENT_USER.rol==='admin'?'block':'none';
-    // Mostrar botón de perfil en esquina solo en desktop
-    const profileCorner = id('profile-corner');
-    if(profileCorner) profileCorner.style.display = window.innerWidth >= 1080 ? 'block' : 'none';
     // Sidebar user with dropdown
     const el = document.getElementById('sb-user-info');
     if(el) el.innerHTML = `
@@ -228,10 +223,6 @@ function toggleProfileMenu(){
   if(menu) menu.style.display = menu.style.display==='none'?'block':'none';
   const sbMenu = id('sb-profile-menu');
   if(sbMenu) sbMenu.style.display='none';
-}
-function toggleProfileMenuDt(){
-  const menu = id('profile-menu-dt');
-  if(menu) menu.style.display = menu.style.display==='none'?'block':'none';
 }
 function toggleSbProfileMenu(){
   const menu = id('sb-profile-menu');

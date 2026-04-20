@@ -45,23 +45,15 @@ async function save(){
 // ── CARGAR DESDE SUPABASE ─────────────────────────────────
 async function loadFromSupabase(silencioso=false){
   if(!silencioso) showLoading('Cargando tus datos...');
+  
+  // Cargar cada tabla por separado para que si una falla, las demás sí carguen
+  // CONFIG
   try {
-    const [cfg, svcs, exts, tars, movs, msiRows, deus, hist] = await Promise.all([
-      supa.from('config').select('*').eq('user_id', UID).single(),
-      supa.from('servicios').select('*').eq('user_id', UID).order('created_at'),
-      supa.from('extras').select('*').eq('user_id', UID).order('created_at'),
-      supa.from('tarjetas').select('*').eq('user_id', UID).order('created_at'),
-      supa.from('movimientos').select('*').eq('user_id', UID).order('created_at'),
-      supa.from('msis').select('*').eq('user_id', UID).order('created_at'),
-      supa.from('deudas').select('*').eq('user_id', UID).order('created_at'),
-      supa.from('historial').select('*').eq('user_id', UID).order('guardado_el'),
-    ]);
-
-    if(cfg.data){
-      const c = cfg.data;
+    const {data, error} = await supa.from('config').select('*').eq('user_id', UID).maybeSingle();
+    if(data && !error){
+      const c = data;
       S.modo = c.modo || 'QUINCENAL';
       S.diaSem = c.dia_sem || 'VIERNES';
-      // Siempre empezar en el periodo actual (índice 0) ya que PERIODOS empieza desde hoy
       S.periodoIdx = 0;
       S.sueldo = parseFloat(c.sueldo) || 0;
       S.sueldoFijo = c.sueldo_fijo !== false;
@@ -70,47 +62,72 @@ async function loadFromSupabase(silencioso=false){
       S.ahoFijo = parseFloat(c.aho_fijo) || 0;
       S.ahoMonto = parseFloat(c.aho_monto) || 0;
       S.periodoCerrado = c.periodo_cerrado || false;
-      S.tema = c.tema || 'clasico';
-      S.zonaHoraria = c.zona_horaria || '';
-      try { S.secciones = JSON.parse(c.secciones) || {}; } catch(e){ S.secciones = {}; }
-      try { S.sueldoPorPeriodo = JSON.parse(c.sueldo_por_periodo) || {}; } catch(e){ S.sueldoPorPeriodo = {}; }
-      try { S.otrosGastos = JSON.parse(c.otros_gastos) || []; } catch(e){ S.otrosGastos = []; }
+      if(c.tema) S.tema = c.tema;
+      if(c.zona_horaria) S.zonaHoraria = c.zona_horaria;
+      if(c.secciones) try { S.secciones = JSON.parse(c.secciones); } catch(e){}
+      if(c.sueldo_por_periodo) try { S.sueldoPorPeriodo = JSON.parse(c.sueldo_por_periodo); } catch(e){}
+      if(c.otros_gastos) try { S.otrosGastos = JSON.parse(c.otros_gastos); } catch(e){}
     }
+    if(error) console.warn('config load error:', error.message);
+  } catch(e){ console.warn('config load fail:', e); }
 
-    if(svcs.data) S.servicios = svcs.data.map(r=>({
+  // SERVICIOS
+  try {
+    const {data} = await supa.from('servicios').select('*').eq('user_id', UID).order('created_at');
+    if(data) S.servicios = data.map(r=>({
       id:r.id, concepto:r.concepto, monto:parseFloat(r.monto),
       cadacuanto:r.cadacuanto||1, fecha:r.fecha||'',
       diaPago:r.dia_pago||1, fechaAgregado:r.fecha||''
     }));
+  } catch(e){ console.warn('servicios load fail:', e); }
 
-    if(exts.data) S.extras = exts.data
+  // EXTRAS
+  try {
+    const {data} = await supa.from('extras').select('*').eq('user_id', UID).order('created_at');
+    if(data) S.extras = data
       .filter(r=>r.periodo_idx===S.periodoIdx)
       .map(r=>({
         id:r.id, concepto:r.concepto, monto:parseFloat(r.monto),
         desc:r.descripcion||'', fecha:r.fecha||''
       }));
+  } catch(e){ console.warn('extras load fail:', e); }
 
-    if(tars.data) S.tarjetas = tars.data.map(r=>({
+  // TARJETAS
+  try {
+    const {data} = await supa.from('tarjetas').select('*').eq('user_id', UID).order('created_at');
+    if(data) S.tarjetas = data.map(r=>({
       id:r.id, nombre:r.nombre, corte:r.corte||5,
       pago:r.pago||25, modo:r.modo||'DÍA DEL MES', color:r.color||'tdc-b'
     }));
+  } catch(e){ console.warn('tarjetas load fail:', e); }
 
-    if(movs.data) S.movimientos = movs.data
+  // MOVIMIENTOS
+  try {
+    const {data} = await supa.from('movimientos').select('*').eq('user_id', UID).order('created_at');
+    if(data) S.movimientos = data
       .map(r=>({
         id:r.id, tarjeta:r.tarjeta, concepto:r.concepto,
         monto:parseFloat(r.monto), fecha:r.fecha||'',
         incluir:r.incluir||'SI', periodo_idx:r.periodo_idx
       }))
       .filter(r=>r.periodo_idx===S.periodoIdx);
+  } catch(e){ console.warn('movimientos load fail:', e); }
 
-    if(msiRows.data) S.msis = msiRows.data.map(r=>({
+  // MSIS
+  try {
+    const {data} = await supa.from('msis').select('*').eq('user_id', UID).order('created_at');
+    if(data) S.msis = data.map(r=>({
       id:r.id, tarjeta:r.tarjeta, concepto:r.concepto,
       monto:parseFloat(r.monto)||0, plazo:r.plazo||12,
       pago:parseFloat(r.pago)||0, incluir:r.incluir||'SI',
       pagoActual:r.pago_actual||1, saldoPendiente:parseFloat(r.saldo_pendiente)||0
     }));
+  } catch(e){ console.warn('msis load fail:', e); }
 
-    if(deus.data) S.deudas = deus.data.map(r=>({
+  // DEUDAS
+  try {
+    const {data} = await supa.from('deudas').select('*').eq('user_id', UID).order('created_at');
+    if(data) S.deudas = data.map(r=>({
       id:r.id, concepto:r.concepto, monto:parseFloat(r.monto)||0,
       plazo:r.plazo||12, pago:parseFloat(r.pago)||0,
       freq:r.freq||'MENSUAL', dia:r.dia||'1',
@@ -119,21 +136,22 @@ async function loadFromSupabase(silencioso=false){
       saldoPendiente:parseFloat(r.saldo_pendiente)||0,
       pagosRestantes:r.pagos_restantes||0
     }));
+  } catch(e){ console.warn('deudas load fail:', e); }
 
-    if(hist.data) S.historial = hist.data.map(r=>({
+  // HISTORIAL
+  try {
+    const {data} = await supa.from('historial').select('*').eq('user_id', UID).order('guardado_el');
+    if(data) S.historial = data.map(r=>({
       id:r.id, periodo:r.periodo, ini:r.ini, fin:r.fin,
       sueldo:parseFloat(r.sueldo)||0, extras:parseFloat(r.extras)||0,
       totalPerc:parseFloat(r.total_perc)||0, totalDedu:parseFloat(r.total_dedu)||0,
       disponible:parseFloat(r.disponible)||0, ahorro:parseFloat(r.ahorro)||0,
       guardadoEl:r.guardado_el
     }));
+  } catch(e){ console.warn('historial load fail:', e); }
 
-    localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
-    // Aplicar tema de Supabase inmediatamente
-    if(typeof aplicarTema === 'function') aplicarTema(S.tema || 'clasico');
-  } catch(e){
-    console.warn('Error cargando Supabase, usando caché local:', e);
-  }
+  localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+  if(typeof aplicarTema === 'function') aplicarTema(S.tema || 'clasico');
   hideLoading();
 }
 
@@ -141,6 +159,7 @@ async function loadFromSupabase(silencioso=false){
 // ── DB FUNCTIONS: Supabase persistence ────────────────
 
 async function saveConfigDB(){
+  if(!UID) return;
   try {
     const payload = {
       user_id: UID, modo: S.modo, dia_sem: S.diaSem,
@@ -155,8 +174,20 @@ async function saveConfigDB(){
       otros_gastos: JSON.stringify(S.otrosGastos || [])
     };
     const {error} = await supa.from('config').upsert(payload, {onConflict:'user_id'});
-    if(error) console.warn('saveConfigDB error:', error.message);
-  } catch(e){ console.warn('saveConfigDB:', e); }
+    if(error){
+      console.error('❌ saveConfigDB error:', error.message, error.details);
+      // Si falla por columnas faltantes, intentar solo con campos base
+      const base = {
+        user_id: UID, modo: S.modo, dia_sem: S.diaSem,
+        sueldo: S.sueldo, sueldo_fijo: S.sueldoFijo,
+        aho_modo: S.ahoModo, aho_pct: S.ahoPct,
+        aho_fijo: S.ahoFijo, aho_monto: S.ahoMonto,
+        periodo_cerrado: S.periodoCerrado
+      };
+      const {error:e2} = await supa.from('config').upsert(base, {onConflict:'user_id'});
+      if(e2) console.error('❌ saveConfigDB fallback also failed:', e2.message);
+    }
+  } catch(e){ console.error('❌ saveConfigDB exception:', e); }
 }
 
 async function saveSvc(s){

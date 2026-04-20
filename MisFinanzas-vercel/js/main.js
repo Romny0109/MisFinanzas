@@ -1365,6 +1365,10 @@ function renderPrincipal(){
   id('m-ano-r').textContent = mxn(gasAnio);
   id('m-acum').textContent = mxn(ganAnio-gasAnio);
 
+  // Ahorro acumulado = solo periodos cerrados del historial
+  const ahorroAcum = S.historial.reduce((a,h)=>a+(h.ahorro||0),0);
+  if(id('m-ahorro-acum')) id('m-ahorro-acum').textContent = mxn(ahorroAcum);
+
   if(id('disp-ahorro-acum')){
     const acumHist = S.historial.reduce((a,h)=>a+(h.ahorro||0),0);
     id('disp-ahorro-acum').textContent = mxn(acumHist + (snap?0:(S.ahoMonto||0)));

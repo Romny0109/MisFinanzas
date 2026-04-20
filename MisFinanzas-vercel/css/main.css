@@ -411,48 +411,10 @@ html,body{font-family:var(--font);background:var(--bg);color:var(--text);min-hei
 .font-sz-btn{width:36px;height:36px;border-radius:var(--rs);border:1px solid var(--border);background:var(--bg3);color:var(--text);font-family:var(--font);font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center}
 .font-sz-btn:hover{background:var(--bg4)}
 .font-sz-btn.on{background:var(--blue);color:#fff;border-color:var(--blue)}
-/* Desktop zoom */
-@media(min-width:768px){
-  html.font-sz-1{zoom:1.25}
-  html.font-sz-2{zoom:1.50}
-  html.font-sz-3{zoom:2.00}
-  html.font-sz-4{zoom:2.50}
-}
-/* Mobile zoom — usar font-size base para que todo escale sin romper el layout */
-@media(max-width:767px){
-  html.font-sz-1{font-size:125%}
-  html.font-sz-2{font-size:150%}
-  html.font-sz-3{font-size:175%}
-  html.font-sz-4{font-size:200%}
-  /* Asegurar que todo use rem para que escale */
-  html.font-sz-1 body,html.font-sz-2 body,html.font-sz-3 body,html.font-sz-4 body{
-    overflow-x:hidden!important;width:100vw!important;
-  }
-}
-/* Cuando hay zoom activo, cancelar layout desktop y usar layout móvil apilado */
-html.font-sz-1 body,html.font-sz-2 body,html.font-sz-3 body,html.font-sz-4 body{
-  overflow:auto!important;height:auto!important;padding:0!important;
-}
-html.font-sz-1 .desktop-wrapper,html.font-sz-2 .desktop-wrapper,
-html.font-sz-3 .desktop-wrapper,html.font-sz-4 .desktop-wrapper{
-  display:block!important;width:100%!important;height:auto!important;overflow:visible!important;
-}
-html.font-sz-1 .sidebar,html.font-sz-2 .sidebar,
-html.font-sz-3 .sidebar,html.font-sz-4 .sidebar{
-  display:none!important;
-}
-html.font-sz-1 .main-content,html.font-sz-2 .main-content,
-html.font-sz-3 .main-content,html.font-sz-4 .main-content{
-  width:100%!important;height:auto!important;overflow:visible!important;padding:12px!important;
-}
-html.font-sz-1 .col-card,html.font-sz-2 .col-card,
-html.font-sz-3 .col-card,html.font-sz-4 .col-card{
-  height:auto!important;overflow:visible!important;
-}
-html.font-sz-1 .hdr,html.font-sz-2 .hdr,html.font-sz-3 .hdr,html.font-sz-4 .hdr{display:flex!important}
-html.font-sz-1 .tabs,html.font-sz-2 .tabs,html.font-sz-3 .tabs,html.font-sz-4 .tabs{display:flex!important}
-html.font-sz-1 .desktop-topbar,html.font-sz-2 .desktop-topbar,
-html.font-sz-3 .desktop-topbar,html.font-sz-4 .desktop-topbar{display:none!important}
+html.font-sz-1{zoom:1.25}
+html.font-sz-2{zoom:1.50}
+html.font-sz-3{zoom:2.00}
+html.font-sz-4{zoom:2.50}
 @supports not (zoom:1){
   html.font-sz-1{transform:scale(1.25);transform-origin:top left;width:calc(100%/1.25)}
   html.font-sz-2{transform:scale(1.50);transform-origin:top left;width:calc(100%/1.50)}

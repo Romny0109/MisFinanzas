@@ -83,29 +83,8 @@ async function loginLocal(){
 }
 
 function registrarSessionListeners(){
-  // Solo cerrar sesión si el usuario cierra/recarga la pestaña de verdad
-  // NO cerrar en swipe-up, cambio de app, o cuando la pantalla se apaga
-  let isRealClose = false;
-  document.addEventListener('visibilitychange', ()=>{
-    if(document.visibilityState === 'hidden'){
-      // Guardar timestamp de cuando se fue a background
-      if(UID) localStorage.setItem('mf_bg_time', Date.now());
-    } else {
-      // Volvió a la app — verificar si pasaron más de 15 min
-      const bgTime = parseInt(localStorage.getItem('mf_bg_time') || '0');
-      if(bgTime && UID){
-        const elapsed = Date.now() - bgTime;
-        if(elapsed > 15 * 60 * 1000){
-          cerrarSesion();
-          return;
-        }
-      }
-      localStorage.removeItem('mf_bg_time');
-    }
-  });
-  // La sesión persiste en localStorage — sobrevive recargas y swipe-up
-  // Solo se elimina al hacer cerrar sesión manualmente o tras 15 min inactivo
-  // Inactividad — cerrar sesión tras 15 min sin tocar la app
+  // Sesión persiste — solo se cierra manualmente o por inactividad
+  // Inactividad — cerrar sesión tras 15 min
   let inactivityTimer;
   function resetInactivityTimer(){
     clearTimeout(inactivityTimer);
@@ -127,41 +106,32 @@ function cerrarSesion(){
 
 async function cargarDatosUsuario(){
   PERIODOS = calcPeriodosDesdeHoy();
-  // Mostrar datos del caché local SOLO mientras Supabase carga (para que no se vea en blanco)
+  // Cargar caché local solo como fallback temporal
   const cache = localStorage.getItem('finanzas_'+UID);
   S = JSON.parse(cache||'null') || {...DEF};
   if(!S.otrosGastos) S.otrosGastos = [];
   if(!S.tema) S.tema = 'clasico';
   if(!S.secciones) S.secciones = {principal:true,servicios:true,extras:true,tdc:true,msi:true,deudas:true,otros:true,ahorro:true};
   if(!S.sueldoPorPeriodo) S.sueldoPorPeriodo = {};
-
   // SIEMPRE cargar desde Supabase — es la fuente de verdad
-  // El localStorage es solo caché temporal, Supabase SIEMPRE gana
   try {
     await loadFromSupabase(false);
-    // Supabase ya actualizó S completo — aplicar todo
-    aplicarTema(S.tema);
-    aplicarSecciones();
-  } catch(e){
-    // Solo si Supabase falla usamos el caché local
-    console.warn('Supabase load failed, usando caché:', e);
-    aplicarTema(S.tema);
-    aplicarSecciones();
-  }
-
+  } catch(e){ console.warn('Supabase load failed, usando caché:', e); }
+  // Aplicar tema y secciones con datos de Supabase
   if(!S.otrosGastos) S.otrosGastos = [];
   if(!S.secciones) S.secciones = {principal:true,servicios:true,extras:true,tdc:true,msi:true,deudas:true,otros:true,ahorro:true};
   if(!S.sueldoPorPeriodo) S.sueldoPorPeriodo = {};
-
+  aplicarTema(S.tema);
+  aplicarSecciones();
   S.fontSize = parseInt(localStorage.getItem('mf_fontSize_'+UID))||0;
   aplicarFontSize(S.fontSize);
   PERIODOS = calcPeriodosDesdeHoy();
-
-  // Auto-guardado de periodo anterior
+  // Auto-guardado
   const periodoAnteriorLabel = S.ultimoPeriodoLabel || null;
   const periodoActualLabel = PERIODOS[0] ? PERIODOS[0].lbl : null;
   if(periodoAnteriorLabel && periodoActualLabel && periodoAnteriorLabel !== periodoActualLabel){
     if(!S.historial.some(h => h.periodo === periodoAnteriorLabel)){
+      // Create snapshot with current data (best effort for past period)
       const snap = crearSnapshot(true);
       snap.periodo = periodoAnteriorLabel;
       snap.ini = ''; snap.fin = '';
@@ -171,7 +141,6 @@ async function cargarDatosUsuario(){
   }
   S.periodoIdx = 0;
   S.ultimoPeriodoLabel = periodoActualLabel;
-  // Guardar en localStorage lo que vino de Supabase (para tener caché actualizado)
   localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
   window.renderAll();
 }
@@ -220,7 +189,7 @@ function mostrarApp(){
 // ── PROFILE MENUS ─────────────────────────────────────
 function toggleProfileMenu(){
   const menu = id('profile-menu');
-  if(menu) menu.style.display = menu.style.display==='none'?'block':'none';
+  menu.style.display = menu.style.display==='none'?'block':'none';
   const sbMenu = id('sb-profile-menu');
   if(sbMenu) sbMenu.style.display='none';
 }
@@ -231,12 +200,13 @@ function toggleSbProfileMenu(){
   if(hdrMenu) hdrMenu.style.display='none';
 }
 document.addEventListener('click', e=>{
-  ['profile-menu','sb-profile-menu','profile-menu-dt'].forEach(mid=>{
+  // Close both profile menus on outside click
+  ['profile-menu','sb-profile-menu'].forEach(mid=>{
     const menu = id(mid);
     if(!menu) return;
-    if(!menu.contains(e.target) && !e.target.closest('[onclick*="toggleProfile"]')){
-      menu.style.display='none';
-    }
+    const triggers = [id('profile-btn'), document.querySelector('[onclick*="toggleSbProfileMenu"]')];
+    const inside = triggers.some(t=>t&&t.contains(e.target)) || menu.contains(e.target);
+    if(!inside) menu.style.display='none';
   });
 });
 
@@ -362,28 +332,11 @@ function abrirAdmin(){
 // ═══════════════════════════════════════════════════════
 
 (async function init(){
-  // Aplicar tema guardado en caché local INMEDIATAMENTE para evitar flash
-  const sessionId = localStorage.getItem('mf_session');
-  if(sessionId){
-    const cachedData = localStorage.getItem('finanzas_'+sessionId);
-    if(cachedData){
-      try{
-        const cached = JSON.parse(cachedData);
-        if(cached.tema && window.aplicarTema) aplicarTema(cached.tema);
-        else if(cached.tema){
-          // aplicarTema aún no existe, aplicar clase directo
-          document.body.classList.remove('theme-oscuro','theme-claro');
-          if(cached.tema==='oscuro') document.body.classList.add('theme-oscuro');
-          else if(cached.tema==='claro') document.body.classList.add('theme-claro');
-        }
-      }catch(e){}
-    }
-  }
-
   // Inicializar usuarios (crea admin por defecto si no existen)
   await initUsers();
 
   // Intentar restaurar sesión
+  const sessionId = localStorage.getItem('mf_session');
   if(sessionId){
     const users = await getUsers();
     const user = users.find(u=>u.id===sessionId && u.activo);
@@ -394,10 +347,9 @@ function abrirAdmin(){
       mostrarApp();
       cargarDatosUsuario();
 
-      // Autosave silencioso a Supabase cada 10 segundos
+      // Autosave a Supabase cada 10s
       setInterval(()=>{ if(UID) saveConfigDB().catch(console.warn); }, 10000);
-
-      // Timer cambio de periodo cada 60s
+      // Timer cambio de periodo
       setInterval(()=>{
         updateDates();
         const p = PERIODOS[S.periodoIdx];

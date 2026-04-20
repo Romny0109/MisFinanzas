@@ -127,33 +127,41 @@ function cerrarSesion(){
 
 async function cargarDatosUsuario(){
   PERIODOS = calcPeriodosDesdeHoy();
+  // Mostrar datos del caché local SOLO mientras Supabase carga (para que no se vea en blanco)
   const cache = localStorage.getItem('finanzas_'+UID);
   S = JSON.parse(cache||'null') || {...DEF};
   if(!S.otrosGastos) S.otrosGastos = [];
   if(!S.tema) S.tema = 'clasico';
   if(!S.secciones) S.secciones = {principal:true,servicios:true,extras:true,tdc:true,msi:true,deudas:true,otros:true,ahorro:true};
   if(!S.sueldoPorPeriodo) S.sueldoPorPeriodo = {};
-  aplicarTema(S.tema);
-  aplicarSecciones();
-  // Cargar desde Supabase — SIEMPRE tiene prioridad sobre caché local
+
+  // SIEMPRE cargar desde Supabase — es la fuente de verdad
+  // El localStorage es solo caché temporal, Supabase SIEMPRE gana
   try {
     await loadFromSupabase(false);
-    // El tema de Supabase ya se aplicó dentro de loadFromSupabase
-  } catch(e){ console.warn('Supabase load failed, usando caché:', e); }
-  // Re-apply defaults after Supabase load
+    // Supabase ya actualizó S completo — aplicar todo
+    aplicarTema(S.tema);
+    aplicarSecciones();
+  } catch(e){
+    // Solo si Supabase falla usamos el caché local
+    console.warn('Supabase load failed, usando caché:', e);
+    aplicarTema(S.tema);
+    aplicarSecciones();
+  }
+
   if(!S.otrosGastos) S.otrosGastos = [];
   if(!S.secciones) S.secciones = {principal:true,servicios:true,extras:true,tdc:true,msi:true,deudas:true,otros:true,ahorro:true};
   if(!S.sueldoPorPeriodo) S.sueldoPorPeriodo = {};
-  aplicarSecciones();
+
   S.fontSize = parseInt(localStorage.getItem('mf_fontSize_'+UID))||0;
   aplicarFontSize(S.fontSize);
   PERIODOS = calcPeriodosDesdeHoy();
-  // Auto-guardado
+
+  // Auto-guardado de periodo anterior
   const periodoAnteriorLabel = S.ultimoPeriodoLabel || null;
   const periodoActualLabel = PERIODOS[0] ? PERIODOS[0].lbl : null;
   if(periodoAnteriorLabel && periodoActualLabel && periodoAnteriorLabel !== periodoActualLabel){
     if(!S.historial.some(h => h.periodo === periodoAnteriorLabel)){
-      // Create snapshot with current data (best effort for past period)
       const snap = crearSnapshot(true);
       snap.periodo = periodoAnteriorLabel;
       snap.ini = ''; snap.fin = '';
@@ -163,7 +171,8 @@ async function cargarDatosUsuario(){
   }
   S.periodoIdx = 0;
   S.ultimoPeriodoLabel = periodoActualLabel;
-  save();
+  // Guardar en localStorage lo que vino de Supabase (para tener caché actualizado)
+  localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
   window.renderAll();
 }
 
@@ -184,7 +193,9 @@ function mostrarApp(){
   if(CURRENT_USER){
     const displayName = `${CURRENT_USER.nombre||''} ${CURRENT_USER.apellido||''}`.trim()||CURRENT_USER.username;
     if(id('profile-name-hdr')) id('profile-name-hdr').textContent = displayName;
+    if(id('profile-name-dt')) id('profile-name-dt').textContent = displayName;
     if(id('admin-menu-item')) id('admin-menu-item').style.display = CURRENT_USER.rol==='admin'?'block':'none';
+    if(id('admin-menu-item-dt')) id('admin-menu-item-dt').style.display = CURRENT_USER.rol==='admin'?'block':'none';
     // Sidebar user with dropdown
     const el = document.getElementById('sb-user-info');
     if(el) el.innerHTML = `
@@ -211,9 +222,17 @@ function mostrarApp(){
 // ── PROFILE MENUS ─────────────────────────────────────
 function toggleProfileMenu(){
   const menu = id('profile-menu');
-  menu.style.display = menu.style.display==='none'?'block':'none';
+  const menuDt = id('profile-menu-dt');
   const sbMenu = id('sb-profile-menu');
   if(sbMenu) sbMenu.style.display='none';
+  // Decide cuál menú mostrar según el que esté visible
+  if(menuDt && document.getElementById('profile-btn-dt') && window.getComputedStyle(document.getElementById('profile-btn-dt')).display !== 'none'){
+    menuDt.style.display = menuDt.style.display==='none'?'block':'none';
+    if(menu) menu.style.display='none';
+  } else if(menu){
+    menu.style.display = menu.style.display==='none'?'block':'none';
+    if(menuDt) menuDt.style.display='none';
+  }
 }
 function toggleSbProfileMenu(){
   const menu = id('sb-profile-menu');

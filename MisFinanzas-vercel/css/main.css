@@ -411,10 +411,24 @@ html,body{font-family:var(--font);background:var(--bg);color:var(--text);min-hei
 .font-sz-btn{width:36px;height:36px;border-radius:var(--rs);border:1px solid var(--border);background:var(--bg3);color:var(--text);font-family:var(--font);font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center}
 .font-sz-btn:hover{background:var(--bg4)}
 .font-sz-btn.on{background:var(--blue);color:#fff;border-color:var(--blue)}
-html.font-sz-1{zoom:1.25}
-html.font-sz-2{zoom:1.50}
-html.font-sz-3{zoom:2.00}
-html.font-sz-4{zoom:2.50}
+/* Desktop zoom */
+@media(min-width:768px){
+  html.font-sz-1{zoom:1.25}
+  html.font-sz-2{zoom:1.50}
+  html.font-sz-3{zoom:2.00}
+  html.font-sz-4{zoom:2.50}
+}
+/* Mobile zoom — usar font-size base para que todo escale sin romper el layout */
+@media(max-width:767px){
+  html.font-sz-1{font-size:125%}
+  html.font-sz-2{font-size:150%}
+  html.font-sz-3{font-size:175%}
+  html.font-sz-4{font-size:200%}
+  /* Asegurar que todo use rem para que escale */
+  html.font-sz-1 body,html.font-sz-2 body,html.font-sz-3 body,html.font-sz-4 body{
+    overflow-x:hidden!important;width:100vw!important;
+  }
+}
 /* Cuando hay zoom activo, cancelar layout desktop y usar layout móvil apilado */
 html.font-sz-1 body,html.font-sz-2 body,html.font-sz-3 body,html.font-sz-4 body{
   overflow:auto!important;height:auto!important;padding:0!important;

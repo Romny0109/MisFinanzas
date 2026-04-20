@@ -1910,7 +1910,8 @@ function delSvc(i){
 }
 function limpiarServicios(){
   if(confirm('¿Eliminar todos los servicios?')){
-    S.servicios.forEach(s=>{ if(s.id) delSvcDB(s.id).catch(console.warn); });
+    // Borrar TODO de Supabase para este usuario
+    supa.from('servicios').delete().eq('user_id', UID).catch(console.warn);
     S.servicios=[]; save(); window.renderSvc(); renderPrincipal();
   }
 }
@@ -1934,7 +1935,7 @@ function delExt(i){
 }
 function limpiarExtras(){
   if(confirm('¿Eliminar todos los ingresos extra?')){
-    S.extras.forEach(e=>{ if(e.id) delExtDB(e.id).catch(console.warn); });
+    supa.from('extras').delete().eq('user_id', UID).catch(console.warn);
     S.extras=[]; save(); window.renderExt(); renderPrincipal(); renderAhorroConfig();
   }
 }
@@ -1967,8 +1968,8 @@ function delMov(i){
 }
 function limpiarMovimientos(){
   if(confirm('¿Limpiar todos los movimientos?')){
-    S.movimientos.forEach(m=>{ if(m.id) delMovDB(m.id).catch(console.warn); });
-    S.msis.forEach(m=>{ if(m.id) delMsiDB(m.id).catch(console.warn); });
+    supa.from('movimientos').delete().eq('user_id', UID).catch(console.warn);
+    supa.from('msis').delete().eq('user_id', UID).catch(console.warn);
     S.movimientos=[]; S.msis=[]; save(); window.renderTDC(); renderPrincipal();
   }
 }
@@ -2145,7 +2146,7 @@ function delDeu(i){
 }
 function limpiarDeudas(){
   if(confirm('¿Eliminar todas las deudas?')){
-    S.deudas.forEach(d=>{ if(d.id) delDeuDB(d.id).catch(console.warn); });
+    supa.from('deudas').delete().eq('user_id', UID).catch(console.warn);
     S.deudas=[]; save(); window.renderDeu(); renderPrincipal();
   }
 }

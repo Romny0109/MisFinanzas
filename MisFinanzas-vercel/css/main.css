@@ -62,7 +62,6 @@ body.theme-claro .sb-tab:hover{background:var(--sb-hover)!important;color:var(--
 body.theme-claro .sb-tab.on{background:var(--sb-active)!important;color:var(--text)!important}
 body.theme-claro .pnav-btn{background:var(--bg3)!important;border-color:var(--border)!important;color:var(--text)!important}
 body.theme-claro .pnav-label{background:var(--bg3)!important;border-color:var(--border)!important;color:var(--text)!important}
-body.theme-claro .pnav-label.pnav-activo{background:var(--green)!important;border-color:var(--green)!important;color:#fff!important}
 body.theme-claro .disp{background:linear-gradient(160deg,var(--disp-g1),var(--disp-g2))!important;border-color:var(--disp-border)!important}
 body.theme-claro .disp-l{color:var(--text2)!important}
 body.theme-claro .disp-a{color:var(--text)!important}
@@ -89,7 +88,6 @@ body.theme-oscuro .sb-tab:hover{background:var(--sb-hover)!important;color:var(-
 body.theme-oscuro .sb-tab.on{background:var(--sb-active)!important;color:#EDEDED!important}
 body.theme-oscuro .pnav-btn{background:var(--bg3)!important;border-color:var(--border)!important}
 body.theme-oscuro .pnav-label{background:var(--bg3)!important;border-color:var(--border)!important}
-body.theme-oscuro .pnav-label.pnav-activo{background:var(--green)!important;border-color:var(--green)!important;color:#fff!important}
 body.theme-oscuro .disp{background:linear-gradient(160deg,var(--disp-g1),var(--disp-g2))!important;border-color:var(--disp-border)!important}
 body.theme-oscuro .desktop-topbar{border-bottom-color:var(--border)!important}
 body.theme-oscuro .dt-title{color:#EDEDED!important}
@@ -266,7 +264,6 @@ html,body{font-family:var(--font);background:var(--bg);color:var(--text);min-hei
     color:var(--text);white-space:nowrap;
     flex:unset;text-align:center;
   }
-  .pnav-label.pnav-activo{background:var(--green)!important;border-color:var(--green)!important;color:#fff!important}
   .modo-pill{
     font-size:.72vw;font-weight:700;padding:.4vh .8vw;
     border-radius:2vw;background:rgba(79,142,247,.14);
@@ -405,22 +402,6 @@ html,body{font-family:var(--font);background:var(--bg);color:var(--text);min-hei
 .pnav-btn:hover{background:var(--bg4)}
 .pnav-btn:disabled{opacity:.3;cursor:not-allowed}
 .pnav-label{flex:1;text-align:center;font-size:13px;font-weight:600;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);padding:7px 8px}
-.pnav-label.pnav-activo{background:var(--green);color:#fff;border-color:var(--green)}
-
-/* Font size scaling */
-.font-sz-btn{width:36px;height:36px;border-radius:var(--rs);border:1px solid var(--border);background:var(--bg3);color:var(--text);font-family:var(--font);font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center}
-.font-sz-btn:hover{background:var(--bg4)}
-.font-sz-btn.on{background:var(--blue);color:#fff;border-color:var(--blue)}
-html.font-sz-1{zoom:1.25}
-html.font-sz-2{zoom:1.50}
-html.font-sz-3{zoom:2.00}
-html.font-sz-4{zoom:2.50}
-@supports not (zoom:1){
-  html.font-sz-1{transform:scale(1.25);transform-origin:top left;width:calc(100%/1.25)}
-  html.font-sz-2{transform:scale(1.50);transform-origin:top left;width:calc(100%/1.50)}
-  html.font-sz-3{transform:scale(2.00);transform-origin:top left;width:calc(100%/2.00)}
-  html.font-sz-4{transform:scale(2.50);transform-origin:top left;width:calc(100%/2.50)}
-}
 .modo-pill{font-size:10px;font-weight:600;padding:4px 9px;border-radius:20px;background:rgba(79,142,247,.15);color:var(--blue);border:1px solid rgba(79,142,247,.3);cursor:pointer;flex-shrink:0;white-space:nowrap}
 
 /* PERIOD CLOSE BANNER */

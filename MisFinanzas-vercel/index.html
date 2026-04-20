@@ -12,11 +12,9 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>
 <body>
-<!-- ══ SPLASH INICIAL ══ -->
-<div id="splash-init" style="position:fixed;inset:0;background:var(--bg);z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;font-family:'DM Sans',system-ui,sans-serif"><div style="font-size:22px;font-weight:800;color:var(--text)">Mis <span style="color:var(--blue)">Finanzas</span></div><div style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite"></div></div>
 <!-- ══ PANTALLA DE LOGIN ══ -->
 <div id="login-screen" style="
-  display:none;position:fixed;inset:0;
+  display:flex;position:fixed;inset:0;
   background:var(--bg);z-index:9999;
   flex-direction:column;align-items:center;justify-content:center;
   font-family:'DM Sans',system-ui,sans-serif;
@@ -588,15 +586,6 @@
             <option value="oscuro">Oscuro profundo</option>
             <option value="claro">Claro</option>
           </select>
-        </div></div>
-        <div class="frow"><div class="fg"><div class="fl">Tamaño de texto</div>
-          <div style="display:flex;gap:6px;margin-top:6px" id="font-size-bar">
-            <button class="font-sz-btn" data-sz="0" onclick="setFontSize(0)" title="Normal" style="font-size:11px">100%</button>
-            <button class="font-sz-btn" data-sz="1" onclick="setFontSize(1)" title="+25%" style="font-size:12px">125%</button>
-            <button class="font-sz-btn" data-sz="2" onclick="setFontSize(2)" title="+50%" style="font-size:13px">150%</button>
-            <button class="font-sz-btn" data-sz="3" onclick="setFontSize(3)" title="+100%" style="font-size:14px">200%</button>
-            <button class="font-sz-btn" data-sz="4" onclick="setFontSize(4)" title="+150%" style="font-size:15px">250%</button>
-          </div>
         </div></div>
       </div>
     </div>

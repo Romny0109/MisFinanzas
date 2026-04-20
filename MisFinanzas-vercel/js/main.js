@@ -2367,10 +2367,12 @@ window.renderSvc = function(){
     const calc = calcSvcEnPeriodo(s);
     const freq = freqLabel(s.cadacuanto||1);
     const sublbl = calc ? `Q${calc.quincenaActual}/${calc.nTotal}` : '';
+    const proxFecha = calc && calc.proxPago ? calc.proxPago.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'}) : '';
     return `<div class="svc">
       <div class="svc-info">
         <div class="svc-name">${s.concepto}</div>
         <div class="svc-sub">${freq}${s.diaPago?' · día '+s.diaPago:''}${sublbl?' · '+sublbl:''}</div>
+        ${proxFecha?`<div style="font-size:10px;color:var(--text3);margin-top:1px">Próx. pago: ${proxFecha}</div>`:''}
       </div>
       <div class="svc-right">
         <div style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--text2)">${mxn(s.monto)}/${(s.cadacuanto||1)>1?s.cadacuanto+'m':'mes'}</div>

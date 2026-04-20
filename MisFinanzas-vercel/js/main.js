@@ -7,6 +7,7 @@ const DEF = {
   ahoModo:'pct', ahoPct:10, ahoFijo:0, ahoMonto:0,
   servicios:[], extras:[], tarjetas:[], movimientos:[], msis:[], deudas:[],
   otrosGastos:[],
+  fontSize:0,
   historial:[], periodoCerrado:false
 };
 let S = {...DEF}; // Se carga desde Supabase en init()
@@ -69,6 +70,11 @@ async function loadFromSupabase(silencioso=false){
       S.ahoFijo = parseFloat(c.aho_fijo) || 0;
       S.ahoMonto = parseFloat(c.aho_monto) || 0;
       S.periodoCerrado = c.periodo_cerrado || false;
+      S.tema = c.tema || 'clasico';
+      S.zonaHoraria = c.zona_horaria || '';
+      try { S.secciones = JSON.parse(c.secciones) || {}; } catch(e){ S.secciones = {}; }
+      try { S.sueldoPorPeriodo = JSON.parse(c.sueldo_por_periodo) || {}; } catch(e){ S.sueldoPorPeriodo = {}; }
+      try { S.otrosGastos = JSON.parse(c.otros_gastos) || []; } catch(e){ S.otrosGastos = []; }
     }
 
     if(svcs.data) S.servicios = svcs.data.map(r=>({
@@ -123,6 +129,8 @@ async function loadFromSupabase(silencioso=false){
     }));
 
     localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+    // Aplicar tema de Supabase inmediatamente
+    if(typeof aplicarTema === 'function') aplicarTema(S.tema || 'clasico');
   } catch(e){
     console.warn('Error cargando Supabase, usando caché local:', e);
   }
@@ -139,9 +147,15 @@ async function saveConfigDB(){
       sueldo: S.sueldo, sueldo_fijo: S.sueldoFijo,
       aho_modo: S.ahoModo, aho_pct: S.ahoPct,
       aho_fijo: S.ahoFijo, aho_monto: S.ahoMonto,
-      periodo_cerrado: S.periodoCerrado
+      periodo_cerrado: S.periodoCerrado,
+      tema: S.tema || 'clasico',
+      secciones: JSON.stringify(S.secciones || {}),
+      zona_horaria: S.zonaHoraria || '',
+      sueldo_por_periodo: JSON.stringify(S.sueldoPorPeriodo || {}),
+      otros_gastos: JSON.stringify(S.otrosGastos || [])
     };
-    await supa.from('config').upsert(payload, {onConflict:'user_id'});
+    const {error} = await supa.from('config').upsert(payload, {onConflict:'user_id'});
+    if(error) console.warn('saveConfigDB error:', error.message);
   } catch(e){ console.warn('saveConfigDB:', e); }
 }
 
@@ -297,14 +311,19 @@ function calcPeriodosDesdeHoy(){
       half++; if(half>2){ half=1; m++; if(m>11){m=0;y++;} }
     }
   } else {
+    // SEMANAL: el día configurado (día de cobro) es el ÚLTIMO día del periodo
+    // Ej: si cobras miércoles → periodo va de jueves a miércoles
     const diasSem=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
     const diaIdx = diasSem.indexOf(S.diaSem||'Viernes');
-    let base = new Date(hoy);
-    let diff = base.getDay() - diaIdx;
+    // Encontrar el PRÓXIMO día de cobro (hoy o adelante) = fin del periodo actual
+    let finActual = new Date(hoy);
+    let diff = diaIdx - finActual.getDay();
     if(diff < 0) diff += 7;
-    base.setDate(base.getDate() - diff);
+    finActual.setDate(finActual.getDate() + diff);
+    // ini del periodo actual = fin - 6
+    let iniActual = new Date(finActual); iniActual.setDate(finActual.getDate() - 6);
     for(let i=0; i<totalNecesarios; i++){
-      const ini = new Date(base); ini.setDate(base.getDate() + i*7);
+      const ini = new Date(iniActual); ini.setDate(iniActual.getDate() + i*7);
       const fin = new Date(ini); fin.setDate(ini.getDate()+6);
       const lbl = `${ini.getDate()} ${MESES[ini.getMonth()]} — ${fin.getDate()} ${MESES[fin.getMonth()]} ${fin.getFullYear()}`;
       periodos.push({lbl, ini, fin});
@@ -457,7 +476,11 @@ function renderPeriodoNav(){
   const lbl = p.lbl;
 
   // Sync ALL periodo labels across all sections
-  document.querySelectorAll('[id^=pnav-lbl]').forEach(el=>el.textContent=lbl);
+  const esActual = S.periodoIdx === actualIdx;
+  document.querySelectorAll('[id^=pnav-lbl]').forEach(el=>{
+    el.textContent=lbl;
+    el.classList.toggle('pnav-activo', esActual);
+  });
 
   // Sync ALL prev/next buttons
   document.querySelectorAll('.pnav-btn-prev').forEach(b=>b.disabled=S.periodoIdx===0);
@@ -1556,8 +1579,33 @@ function renderAll(){
   renderDeu();
   renderAhorro();
   renderAhorroConfig();
+  bloquearSiSnapshot();
   id('modo-lbl').textContent = S.modo==='QUINCENAL'?'Quincenal':'Semanal';
   id('hdr-date').textContent = new Date().toLocaleDateString('es-MX',{weekday:'short',day:'numeric',month:'short'});
+}
+
+// Bloquea botones de agregar/eliminar si vemos un periodo ya guardado
+function bloquearSiSnapshot(){
+  const snap = getSnapshotActual();
+  const bloqueado = !!snap;
+  // Botones de agregar en todas las secciones
+  document.querySelectorAll('.add-btn').forEach(b=>{
+    b.disabled = bloqueado;
+    b.style.opacity = bloqueado ? '.3' : '';
+    b.style.pointerEvents = bloqueado ? 'none' : '';
+  });
+  // Botón agregar tarjeta
+  const tarBtn = document.querySelector('[onclick*="openModal(\'m-tar\')"]');
+  if(tarBtn){ tarBtn.disabled = bloqueado; tarBtn.style.opacity = bloqueado?'.3':''; tarBtn.style.pointerEvents = bloqueado?'none':''; }
+  // Botones de eliminar dentro de listas (× eliminar, × limpiar)
+  document.querySelectorAll('.btn-danger, [onclick*="limpiar"], [onclick*="delSvc"], [onclick*="delExt"], [onclick*="delMov"], [onclick*="delMsi"], [onclick*="delDeu"], [onclick*="delTar"], [onclick*="delOtro"], [onclick*="toggleMov"], [onclick*="toggleMsi"]').forEach(b=>{
+    b.disabled = bloqueado;
+    b.style.opacity = bloqueado ? '.3' : '';
+    b.style.pointerEvents = bloqueado ? 'none' : '';
+  });
+  // Sueldo input
+  const sueldoInput = id('sueldo-input');
+  if(sueldoInput) sueldoInput.readOnly = bloqueado;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1608,6 +1656,8 @@ function abrirConfig(){
   id('cfg-tema').value=S.tema||'clasico';
   id('cfg-tz').value=S.zonaHoraria||'auto';
   onModoChange();
+  // Font size buttons
+  aplicarFontSize(S.fontSize || 0);
   // Set section checkboxes
   const secs = S.secciones || {};
   ['servicios','extras','tdc','msi','deudas','otros','ahorro'].forEach(k=>{
@@ -1633,6 +1683,35 @@ function aplicarTema(tema){
     const colors = {clasico:'#0F1117', oscuro:'#000000', claro:'#F4F6F9'};
     metaTC.content = colors[tema]||colors.clasico;
   }
+}
+
+function setFontSize(level){
+  S.fontSize = level;
+  aplicarFontSize(level);
+  localStorage.setItem('mf_fontSize_'+UID, level);
+}
+function aplicarFontSize(level){
+  const html = document.documentElement;
+  html.classList.remove('font-sz-1','font-sz-2','font-sz-3','font-sz-4');
+  if(level > 0) html.classList.add('font-sz-'+level);
+  const scales = [1, 1.25, 1.50, 2.00, 2.50];
+  const scale = scales[level] || 1;
+  // En desktop con zoom > 1, forzar layout mobile para que no se corte
+  const wrapper = document.getElementById('app-wrapper');
+  if(wrapper){
+    if(scale > 1){
+      // Forzar layout mobile: desactivar desktop flex, habilitar scroll
+      wrapper.style.zoom = scale;
+      html.classList.add('force-mobile');
+    } else {
+      wrapper.style.zoom = '';
+      html.classList.remove('force-mobile');
+    }
+  }
+  // Highlight active button
+  document.querySelectorAll('.font-sz-btn').forEach(b=>{
+    b.classList.toggle('on', parseInt(b.dataset.sz)===level);
+  });
 }
 function aplicarSecciones(){
   const secs = S.secciones || {};
@@ -1680,7 +1759,10 @@ function guardarConfig(){
   aplicarSecciones();
   PERIODOS = calcPeriodosDesdeHoy();
   S.periodoIdx = 0;
-  closeModal('m-cfg'); save(); renderAll();
+  closeModal('m-cfg');
+  save();
+  saveConfigDB().catch(console.warn);
+  renderAll();
 }
 
 // SERVICIOS

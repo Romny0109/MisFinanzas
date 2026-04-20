@@ -8,31 +8,64 @@ let UID = null;
 let CURRENT_USER = null;
 
 // ═══════════════════════════════════════════════════════
-// AUTH LOCAL — usuarios en localStorage
+// AUTH — usuarios en Supabase
 // ═══════════════════════════════════════════════════════
-function getUsers(){ return JSON.parse(localStorage.getItem('mf_users')||'[]') }
-function saveUsers(users){ localStorage.setItem('mf_users', JSON.stringify(users)) }
+let _usersCache = []; // caché local para evitar queries repetidos
 function hashPass(p){ return btoa(encodeURIComponent(p)) }
 function unhashPass(h){ try{ return decodeURIComponent(atob(h)) }catch(e){ return '***' } }
 
-function initUsers(){
-  let users = getUsers();
+async function getUsers(){
+  try {
+    const {data, error} = await supa.from('usuarios').select('*').order('created_at');
+    if(error) throw error;
+    _usersCache = (data||[]).map(r=>({
+      id:r.id, username:r.username, pass:r.pass,
+      nombre:r.nombre||'', apellido:r.apellido||'',
+      rol:r.rol||'user', nacimiento:r.nacimiento||'',
+      activo:r.activo!==false, creadoEl:r.created_at
+    }));
+  } catch(e){
+    console.warn('getUsers from Supabase failed, using cache:', e);
+  }
+  return _usersCache;
+}
+
+async function saveUserDB(u){
+  try {
+    const payload = {
+      id:u.id, username:u.username, pass:u.pass,
+      nombre:u.nombre||'', apellido:u.apellido||'',
+      rol:u.rol||'user', nacimiento:u.nacimiento||'',
+      activo:u.activo!==false
+    };
+    await supa.from('usuarios').upsert(payload, {onConflict:'id'});
+  } catch(e){ console.warn('saveUserDB:', e); }
+}
+
+async function deleteUserDB(uid){
+  try { await supa.from('usuarios').delete().eq('id', uid); }
+  catch(e){ console.warn('deleteUserDB:', e); }
+}
+
+async function initUsers(){
+  const users = await getUsers();
   if(!users.length){
-    users.push({
+    const admin = {
       id:'admin-1', username:'atorres', pass:hashPass('A0109e0907'),
-      nombre:'Admin', apellido:'Torres', rol:'admin',
+      nombre:'Angel', apellido:'Torres', rol:'admin',
       nacimiento:'', activo:true, creadoEl:new Date().toISOString()
-    });
-    saveUsers(users);
+    };
+    _usersCache.push(admin);
+    await saveUserDB(admin);
   }
 }
 
-function loginLocal(){
+async function loginLocal(){
   const username = id('login-user').value.trim().toLowerCase();
   const pass = id('login-pass').value;
   const errEl = id('login-error');
   if(!username||!pass){ errEl.style.display='block'; errEl.textContent='Ingresa usuario y contraseña'; return; }
-  const users = getUsers();
+  const users = await getUsers();
   const user = users.find(u=>u.username.toLowerCase()===username);
   if(!user||user.pass!==hashPass(pass)){
     errEl.style.display='block'; errEl.textContent='Usuario o contraseña incorrectos'; return;
@@ -44,32 +77,61 @@ function loginLocal(){
   UID = user.id;
   CURRENT_USER = user;
   localStorage.setItem('mf_session', user.id);
+  registrarSessionListeners();
   mostrarApp();
   cargarDatosUsuario();
+}
+
+function registrarSessionListeners(){
+  // Cerrar sesión al cerrar pestaña/navegador
+  window.addEventListener('beforeunload', ()=>{
+    localStorage.removeItem('mf_session');
+  });
+  // Inactividad — cerrar sesión tras 15 min
+  let inactivityTimer;
+  function resetInactivityTimer(){
+    clearTimeout(inactivityTimer);
+    inactivityTimer = setTimeout(()=>{
+      if(UID) cerrarSesion();
+    }, 15*60*1000);
+  }
+  ['click','keydown','touchstart','mousemove','scroll'].forEach(evt=>{
+    document.addEventListener(evt, resetInactivityTimer, {passive:true});
+  });
+  resetInactivityTimer();
 }
 
 function cerrarSesion(){
   CURRENT_USER = null; UID = null;
   localStorage.removeItem('mf_session');
+  // Login siempre en tema clásico
+  aplicarTema('clasico');
+  document.documentElement.classList.remove('font-sz-1','font-sz-2','font-sz-3','font-sz-4');
   mostrarPantallaLogin();
 }
 
 async function cargarDatosUsuario(){
   PERIODOS = calcPeriodosDesdeHoy();
+  // Cargar caché local solo como fallback temporal
   const cache = localStorage.getItem('finanzas_'+UID);
   S = JSON.parse(cache||'null') || {...DEF};
   if(!S.otrosGastos) S.otrosGastos = [];
   if(!S.tema) S.tema = 'clasico';
   if(!S.secciones) S.secciones = {principal:true,servicios:true,extras:true,tdc:true,msi:true,deudas:true,otros:true,ahorro:true};
   if(!S.sueldoPorPeriodo) S.sueldoPorPeriodo = {};
-  aplicarTema(S.tema);
-  aplicarSecciones();
-  // Intentar cargar desde Supabase (sobreescribe localStorage si hay datos)
-  try { await loadFromSupabase(false); } catch(e){ console.warn('Supabase load failed, usando caché:', e); }
-  // Re-apply defaults after Supabase load
+  // SIEMPRE cargar desde Supabase — es la fuente de verdad
+  try {
+    await loadFromSupabase(false);
+  } catch(e){ console.warn('Supabase load failed, usando caché:', e); }
+  // Aplicar tema y secciones con datos de Supabase
   if(!S.otrosGastos) S.otrosGastos = [];
   if(!S.secciones) S.secciones = {principal:true,servicios:true,extras:true,tdc:true,msi:true,deudas:true,otros:true,ahorro:true};
   if(!S.sueldoPorPeriodo) S.sueldoPorPeriodo = {};
+  aplicarTema(S.tema);
+  aplicarSecciones();
+  S.fontSize = parseInt(localStorage.getItem('mf_fontSize_'+UID))||0;
+  aplicarFontSize(S.fontSize);
+  PERIODOS = calcPeriodosDesdeHoy();
   // Auto-guardado
   const periodoAnteriorLabel = S.ultimoPeriodoLabel || null;
   const periodoActualLabel = PERIODOS[0] ? PERIODOS[0].lbl : null;
@@ -85,18 +147,22 @@ async function cargarDatosUsuario(){
   }
   S.periodoIdx = 0;
   S.ultimoPeriodoLabel = periodoActualLabel;
-  save();
+  localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
   window.renderAll();
 }
 
 // ── PANTALLA DE LOGIN ─────────────────────────────────────
 function mostrarPantallaLogin(){
+  const splash = document.getElementById('splash-init');
+  if(splash) splash.style.display='none';
   document.getElementById('app-wrapper').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   id('login-user').value=''; id('login-pass').value='';
   id('login-error').style.display='none';
 }
 function mostrarApp(){
+  const splash = document.getElementById('splash-init');
+  if(splash) splash.style.display='none';
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-wrapper').style.display = '';
   if(CURRENT_USER){
@@ -159,7 +225,7 @@ function abrirCuenta(){
     id('cuenta-nacimiento').value = CURRENT_USER.nacimiento||'';
   }
 }
-function guardarCuenta(){
+async function guardarCuenta(){
   if(!CURRENT_USER) return;
   const nombre = id('cuenta-nombre').value.trim();
   const apellido = id('cuenta-apellido').value.trim();
@@ -167,22 +233,24 @@ function guardarCuenta(){
   const pass = id('cuenta-pass').value;
   const pass2 = id('cuenta-pass2').value;
   if(pass && pass!==pass2){ alert('Las contraseñas no coinciden'); return; }
-  const users = getUsers();
+  const users = await getUsers();
   const idx = users.findIndex(u=>u.id===CURRENT_USER.id);
   if(idx<0) return;
   users[idx].nombre = nombre;
   users[idx].apellido = apellido;
   users[idx].nacimiento = nacimiento;
   if(pass) users[idx].pass = hashPass(pass);
-  saveUsers(users);
+  await saveUserDB(users[idx]);
+  _usersCache = users;
   CURRENT_USER = users[idx];
   mostrarApp();
   id('cuenta-pass').value=''; id('cuenta-pass2').value='';
   closeModal('m-cuenta');
+  alert('¡Datos actualizados correctamente!');
 }
 
 // ── ADMIN PANEL ─────────────────────────────────────
-function crearUsuario(){
+async function crearUsuario(){
   if(!CURRENT_USER||CURRENT_USER.rol!=='admin') return;
   const username = id('adm-user').value.trim().toLowerCase();
   const pass = id('adm-pass').value;
@@ -190,22 +258,23 @@ function crearUsuario(){
   const apellido = id('adm-apellido').value.trim();
   const rol = id('adm-rol').value;
   if(!username||!pass){ alert('Usuario y contraseña requeridos'); return; }
-  const users = getUsers();
+  const users = await getUsers();
   if(users.some(u=>u.username.toLowerCase()===username)){ alert('Ese usuario ya existe'); return; }
-  users.push({
+  const newUser = {
     id:'user-'+Date.now(), username, pass:hashPass(pass),
     nombre, apellido, rol, nacimiento:'', activo:true,
     creadoEl:new Date().toISOString()
-  });
-  saveUsers(users);
+  };
+  _usersCache.push(newUser);
+  await saveUserDB(newUser);
   id('adm-user').value=''; id('adm-pass').value='';
   id('adm-nombre').value=''; id('adm-apellido').value='';
   renderAdminUsers();
 }
-function renderAdminUsers(){
+async function renderAdminUsers(){
   const el = id('adm-users-list');
   if(!el) return;
-  const users = getUsers();
+  const users = await getUsers();
   el.innerHTML = users.map((u,i)=>{
     const esSelf = CURRENT_USER && u.id===CURRENT_USER.id;
     const pass = unhashPass(u.pass);
@@ -229,30 +298,30 @@ function renderAdminUsers(){
     </div>`;
   }).join('');
 }
-function toggleUsuario(i){
-  const users = getUsers();
+async function toggleUsuario(i){
+  const users = await getUsers();
   users[i].activo = !users[i].activo;
-  saveUsers(users); renderAdminUsers();
+  await saveUserDB(users[i]); renderAdminUsers();
 }
-function changeRolUsuario(i,rol){
-  const users = getUsers();
+async function changeRolUsuario(i,rol){
+  const users = await getUsers();
   users[i].rol = rol;
-  saveUsers(users); renderAdminUsers();
+  await saveUserDB(users[i]); renderAdminUsers();
 }
-function resetPassUsuario(i){
-  const newPass = prompt('Nueva contraseña para @'+getUsers()[i].username+':');
+async function resetPassUsuario(i){
+  const users = await getUsers();
+  const newPass = prompt('Nueva contraseña para @'+users[i].username+':');
   if(!newPass) return;
-  const users = getUsers();
   users[i].pass = hashPass(newPass);
-  saveUsers(users); alert('Contraseña actualizada');
+  await saveUserDB(users[i]); alert('Contraseña actualizada');
 }
-function deleteUsuario(i){
-  const users = getUsers();
+async function deleteUsuario(i){
+  const users = await getUsers();
   const u = users[i];
   if(!confirm(`¿Eliminar a @${u.username}? Se perderán todos sus datos.`)) return;
-  localStorage.removeItem('finanzas_'+u.id);
-  users.splice(i,1);
-  saveUsers(users); renderAdminUsers();
+  await deleteUserDB(u.id);
+  _usersCache.splice(i,1);
+  renderAdminUsers();
 }
 function abrirAdmin(){
   if(!CURRENT_USER||CURRENT_USER.rol!=='admin') return;
@@ -268,22 +337,25 @@ function abrirAdmin(){
 
 // ═══════════════════════════════════════════════════════
 
-(function init(){
+(async function init(){
   // Inicializar usuarios (crea admin por defecto si no existen)
-  initUsers();
+  await initUsers();
 
   // Intentar restaurar sesión
   const sessionId = localStorage.getItem('mf_session');
   if(sessionId){
-    const users = getUsers();
+    const users = await getUsers();
     const user = users.find(u=>u.id===sessionId && u.activo);
     if(user){
       UID = user.id;
       CURRENT_USER = user;
+      registrarSessionListeners();
       mostrarApp();
       cargarDatosUsuario();
 
-      // Timer auto-guardado cada 60s
+      // Autosave a Supabase cada 10s
+      setInterval(()=>{ if(UID) saveConfigDB().catch(console.warn); }, 10000);
+      // Timer cambio de periodo
       setInterval(()=>{
         updateDates();
         const p = PERIODOS[S.periodoIdx];
@@ -297,22 +369,11 @@ function abrirAdmin(){
         }
       }, 60000);
 
-      // Inactividad — cerrar sesión tras 30 min
-      let inactivityTimer;
-      function resetInactivityTimer(){
-        clearTimeout(inactivityTimer);
-        inactivityTimer = setTimeout(()=>{
-          if(UID) cerrarSesion();
-        }, 30*60*1000);
-      }
-      ['click','keydown','touchstart','mousemove','scroll'].forEach(evt=>{
-        document.addEventListener(evt, resetInactivityTimer, {passive:true});
-      });
-      resetInactivityTimer();
       return;
     }
   }
 
-  // No hay sesión — mostrar login
+  // No hay sesión — mostrar login siempre en tema clásico
+  aplicarTema('clasico');
   mostrarPantallaLogin();
 })();

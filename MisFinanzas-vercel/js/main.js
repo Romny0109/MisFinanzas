@@ -2239,7 +2239,6 @@ function guardarDeu(){
   const tipo=id('deu-tipo')?id('deu-tipo').value:'normal';
   const freq=id('deu-freq').value;
   const ini=id('deu-ini').value, adq=(id('deu-adq')&&id('deu-adq').value)||'';
-  const fechaAgregado=new Date().toISOString().split('T')[0];
   const pg=parseFloat(id('deu-pg').value)||0;
 
   if(tipo==='tanda'){
@@ -2252,13 +2251,15 @@ function guardarDeu(){
     if(!nombre||!tanTotal||!tanNum||!pgTan){alert('Completa todos los campos de la tanda');return;}
     if(!iniTan){alert('La fecha de inicio de la tanda es requerida');return;}
     if(tanNum>tanTotal){alert('Tu n\u00famero no puede ser mayor al total');return;}
-    const deu={concepto:nombre,monto:0,plazo:tanTotal,pago:pgTan,freq:freqTan,ini:iniTan,adq:'',fechaAgregado,esTanda:true,tandaNum:tanNum,tandaTotal:tanTotal};
+    const fechaAgregadoTan = iniTan; // usar fecha ini para que el calculo auto sea correcto
+    const deu={concepto:nombre,monto:0,plazo:tanTotal,pago:pgTan,freq:freqTan,ini:iniTan,adq:'',fechaAgregado:fechaAgregadoTan,esTanda:true,tandaNum:tanNum,tandaTotal:tanTotal};
     S.deudas.push(deu); saveDeuDB(deu).catch(console.warn); save();
   } else {
     const c=id('deu-c').value.trim(), m=parseFloat(id('deu-m').value)||0, pl=parseInt(id('deu-pl').value)||0;
     if(!c||!m||!pl||!pg){alert('Completa todos los campos requeridos');return;}
     if(!ini){alert('La fecha del primer pago es requerida');return;}
-    const deu={concepto:c,monto:m,plazo:pl,pago:pg,freq,ini,adq,fechaAgregado};
+    const fechaAgregadoDeu = ini; // usar fecha ini para que el calculo auto sea correcto
+    const deu={concepto:c,monto:m,plazo:pl,pago:pg,freq,ini,adq,fechaAgregado:fechaAgregadoDeu};
     S.deudas.push(deu); saveDeuDB(deu).catch(console.warn); save();
   }
   ['deu-c','deu-m','deu-pl','deu-pg','deu-pg-tan','tan-nombre','tan-total','tan-num'].forEach(fid=>{const el=id(fid);if(el)el.value='';});

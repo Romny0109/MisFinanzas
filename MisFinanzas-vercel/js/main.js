@@ -1630,11 +1630,14 @@ function renderDeu(){
     const pct = d.plazo>0 ? Math.round(plazoActual/d.plazo*100) : 0;
     const label = S.modo==='QUINCENAL'?'Quincena':'Semana';
     const sublbl = `${label} ${quincenaActual}/${nTotal} · Pago ${plazoActual}/${d.plazo}`;
+    // Saldo actual = total con intereses − pagos ya realizados (plazoActual-1 pagos completados)
+    const pagosYaHechos = Math.max(0, plazoActual - 1);
+    const saldoActual = Math.max(0, totalPagar - pagosYaHechos * d.pago);
 
     return `<div class="deu">
       <div class="deu-hdr">
         <div class="deu-name">${d.concepto}</div>
-        <span class="badge a">${d.freq}${d.dia?' · día '+d.dia:''}</span>
+        <span class="badge a">${d.freq}</span>
       </div>
       <div class="deu-stats">
         <div class="deu-stat">Pago: <span>${plazoActual} de ${d.plazo}</span></div>
@@ -1644,7 +1647,8 @@ function renderDeu(){
       <div class="prog"><div class="prog-f" style="width:${pct}%;background:var(--green)"></div></div>
       ${interes>0?`<div class="deu-rates">
         <div class="rate-item"><div class="rate-l">Tasa anual aprox.</div><div class="rate-v">${tasa.toFixed(1)}%</div></div>
-        <div class="rate-item"><div class="rate-l">Interés total $</div><div class="rate-v r">${mxn(interes)}</div></div>
+        <div class="rate-item"><div class="rate-l">Interés total</div><div class="rate-v r">${mxn(interes)}</div></div>
+        <div class="rate-item"><div class="rate-l">Se debe aún</div><div class="rate-v r" style="color:var(--amber)">${mxn(saldoActual)}</div></div>
       </div>`:''}
       <div class="deu-pago-row">
         <span style="font-size:11px;color:var(--text2)">Pago ${d.freq.toLowerCase()}: ${mxn(d.pago)} → este periodo:</span>
@@ -2787,22 +2791,24 @@ window.renderDeu = function(){
     const pct = d.plazo>0 ? Math.round(plazoActual/d.plazo*100) : 0;
     const label = S.modo==='QUINCENAL'?'Quincena':'Semana';
     const sublbl = `${label} ${quincenaActual} de ${nTotal} · Pago ${plazoActual} de ${d.plazo}`;
+    const pagosYaHechos = Math.max(0, plazoActual - 1);
+    const saldoActual = Math.max(0, totalPagar - pagosYaHechos * d.pago);
 
     return `<div class="deu">
       <div class="deu-hdr">
         <div class="deu-name" style="font-size:15px;font-weight:700;color:var(--text)">${d.concepto}</div>
-        <span class="badge a" style="font-size:11px">${d.freq}${d.dia?' · día '+d.dia:''}</span>
+        <span class="badge a" style="font-size:11px">${d.freq}</span>
       </div>
       <div class="deu-stats" style="margin:6px 0;gap:12px">
         <div class="deu-stat" style="font-size:13px;color:var(--text2)">Pago <span style="color:var(--text);font-weight:700">${plazoActual}</span> de <span style="color:var(--text);font-weight:700">${d.plazo}</span></div>
         <div class="deu-stat" style="font-size:13px;color:var(--text2)">Faltan <span style="color:var(--green);font-weight:700">${restantes}</span></div>
-        ${d.saldoPendiente?`<div class="deu-stat" style="font-size:13px;color:var(--text2)">Saldo <span style="color:var(--amber);font-weight:700">${mxn(d.saldoPendiente)}</span></div>`:''}
       </div>
       <div style="font-size:12px;color:var(--teal);font-weight:600;margin-bottom:6px">${sublbl}</div>
       <div class="prog"><div class="prog-f" style="width:${pct}%;background:var(--green)"></div></div>
       ${interes>0?`<div class="deu-rates" style="margin-top:8px">
         <div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Tasa anual</div><div class="rate-v" style="font-size:13px;color:var(--text);font-weight:700">${tasa.toFixed(1)}%</div></div>
         <div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Interés total</div><div class="rate-v r" style="font-size:13px;font-weight:700">${mxn(interes)}</div></div>
+        <div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Se debe aún</div><div class="rate-v r" style="font-size:13px;font-weight:700;color:var(--amber)">${mxn(saldoActual)}</div></div>
       </div>`:''}
       <div class="deu-pago-row" style="margin-top:10px">
         <span style="font-size:13px;color:var(--text2);font-weight:500">Pago ${d.freq.toLowerCase()}: ${mxn(d.pago)} → este periodo:</span>

@@ -801,7 +801,12 @@ function cicloVisibleTarjeta(tar){
 // ═══════════════════════════════════════════════════════
 // HELPERS MSI — encontrar n-ésimo día de cobro y siguiente periodo
 // ═══════════════════════════════════════════════════════
-function _isoStr(d){ return d.toISOString().split('T')[0] }
+function _isoStr(d){
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
 
 // Encuentra la fecha del n-ésimo día de cobro desde 'desde' (inclusive)
 function findNthCobro(desde, n){
@@ -1904,7 +1909,14 @@ function guardarSvc(){
 function delSvc(i){
   if(confirm('¿Eliminar este servicio?')){
     const svc=S.servicios[i];
-    if(svc.id) delSvcDB(svc.id).catch(console.warn);
+    if(svc.id){
+      delSvcDB(svc.id).catch(console.warn);
+    } else {
+      // Sin id local — borrar por concepto+monto para este usuario
+      supa.from('servicios').delete()
+        .eq('user_id', UID).eq('concepto', svc.concepto).eq('monto', svc.monto)
+        .catch(console.warn);
+    }
     S.servicios.splice(i,1); save(); window.renderSvc(); renderPrincipal();
   }
 }

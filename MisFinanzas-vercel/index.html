@@ -765,12 +765,9 @@
       </div>
       <div class="frow">
         <div class="fg"><div class="fl">Frecuencia</div>
-          <select class="fi" id="deu-freq-tan" onchange="setDeuFreqTanda();checkDeuFecha()">
+          <select class="fi" id="deu-freq-tan" onchange="checkDeuFecha()">
             <option value="SEMANAL">Semanal</option><option value="QUINCENAL">Quincenal</option>
           </select>
-        </div>
-        <div class="fg" id="deu-dia-s-w-tan"><div class="fl">Día de pago</div>
-          <select class="fi" id="deu-dias-tan"><option>Lunes</option><option>Martes</option><option>Miércoles</option><option>Jueves</option><option>Viernes</option><option selected>Sábado</option><option>Domingo</option></select>
         </div>
       </div>
       <div class="frow"><div class="fg"><div class="fl">Pago por número $</div><input class="fi" type="number" id="deu-pg-tan" inputmode="decimal" oninput="calcTandaInfo()"></div></div>

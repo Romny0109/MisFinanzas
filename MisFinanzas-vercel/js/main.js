@@ -133,7 +133,10 @@ async function loadFromSupabase(silencioso=false){
       plazo:r.plazo||12, pago:parseFloat(r.pago)||0,
       freq:r.freq||'MENSUAL',
       ini:r.ini||'', adq:r.adq||'',
-      fechaAgregado: r.fecha_agregado || r.ini || ''
+      fechaAgregado: r.fecha_agregado || r.ini || '',
+      esTanda: r.es_tanda||false,
+      tandaNum: r.tanda_num||null,
+      tandaTotal: r.tanda_total||null
     }));
   } catch(e){ console.warn('deudas load fail:', e); }
 
@@ -285,10 +288,13 @@ async function updateMsiDB(m){
 async function saveDeuDB(d){
   try {
     const {data} = await supa.from('deudas').insert({
-      user_id: UID, concepto: d.concepto, monto: d.monto,
+      user_id: UID, concepto: d.concepto, monto: d.monto||0,
       plazo: d.plazo, pago: d.pago, freq: d.freq,
       ini: d.ini, adq: d.adq||'',
-      fecha_agregado: d.fechaAgregado||new Date().toISOString().split('T')[0]
+      fecha_agregado: d.fechaAgregado||new Date().toISOString().split('T')[0],
+      es_tanda: d.esTanda||false,
+      tanda_num: d.tandaNum||null,
+      tanda_total: d.tandaTotal||null
     }).select().single();
     if(data) d.id = data.id;
   } catch(e){ console.warn('saveDeuDB:', e); }
@@ -935,118 +941,101 @@ function quincenasMsiDesdeHoy(tar, fechaCompra, fechaAgregado){
 function calcDeuEnPeriodo(d){
   const p = PERIODOS[S.periodoIdx];
   if(!p) return null;
-  const pIni = new Date(p.ini); pIni.setHours(0,0,0,0);
-  const pFin = new Date(p.fin); pFin.setHours(0,0,0,0);
+  const pIni = new Date(p.ini+'T12:00:00'); pIni.setHours(0,0,0,0);
+  const pFin = new Date(p.fin+'T12:00:00'); pFin.setHours(0,0,0,0);
 
   if(!d.ini) return null;
   const fIni = new Date(d.ini+'T12:00:00'); fIni.setHours(0,0,0,0);
   const fAgre = d.fechaAgregado ? new Date(d.fechaAgregado+'T12:00:00') : new Date(fIni);
   fAgre.setHours(0,0,0,0);
 
-  // Genera la N-ésima fecha de pago a partir de ini (n=0 → primer pago = ini)
+  // N-esima fecha de pago (n=0 = fIni)
   function getNthFechaPago(n){
     if(d.freq === 'MENSUAL'){
       const diaPago = fIni.getDate();
       const f = new Date(fIni.getFullYear(), fIni.getMonth()+n, diaPago);
       const maxDia = new Date(f.getFullYear(), f.getMonth()+1, 0).getDate();
-      if(f.getDate() !== diaPago && diaPago <= 31) f.setDate(Math.min(diaPago, maxDia));
+      if(f.getDate() !== diaPago) f.setDate(Math.min(diaPago, maxDia));
       return f;
     } else if(d.freq === 'QUINCENAL'){
-      let y = fIni.getFullYear(), m = fIni.getMonth();
-      let half = fIni.getDate() <= 15 ? 1 : 2;
-      let count = 0;
-      for(let i=0; i<200; i++){
-        const finMes = new Date(y, m+1, 0).getDate();
-        const f = half === 1 ? new Date(y,m,15) : new Date(y,m,finMes);
-        if(f >= fIni){ if(count === n) return f; count++; }
-        half++; if(half>2){ half=1; m++; if(m>11){m=0;y++;} }
+      let y=fIni.getFullYear(), m=fIni.getMonth(), half=fIni.getDate()<=15?1:2, cnt=0;
+      for(let i=0;i<200;i++){
+        const fin=new Date(y,m+1,0).getDate();
+        const f=half===1?new Date(y,m,15):new Date(y,m,fin);
+        if(f>=fIni){ if(cnt===n) return f; cnt++; }
+        half++; if(half>2){half=1;m++;if(m>11){m=0;y++;}}
       }
       return fIni;
-    } else { // SEMANAL
-      const diasSem=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
-      const diaIdx = diasSem.indexOf(d.dia||'Viernes');
-      const cursor = new Date(fIni);
-      while(cursor.getDay() !== diaIdx) cursor.setDate(cursor.getDate()+1);
-      cursor.setDate(cursor.getDate() + n*7);
-      return cursor;
+    } else { // SEMANAL - dia extraido de fIni
+      const f = new Date(fIni);
+      f.setDate(f.getDate() + n*7);
+      return f;
     }
   }
 
-  // ── CALCULAR pagoActual AUTOMÁTICAMENTE ──────────────────
-  // Cuenta cuántas fechas de pago han llegado desde ini hasta hoy.
-  // El pagoActual es el número del pago cuya fecha de vencimiento
-  // es hoy o futura más próxima (el pago que se está cursando o próximo).
+  // Conteo especifico por frecuencia de deuda
+  function contarDiasDeuda(hastaStr, desdeStr2){
+    if(d.freq === 'SEMANAL'){
+      const diaIdx = fIni.getDay();
+      const desde2 = new Date(desdeStr2+'T12:00:00'); desde2.setHours(0,0,0,0);
+      const hasta2 = new Date(hastaStr+'T12:00:00'); hasta2.setHours(0,0,0,0);
+      if(hasta2 < desde2) return 0;
+      let cnt=0; const cur=new Date(desde2);
+      while(cur<=hasta2){ if(cur.getDay()===diaIdx) cnt++; cur.setDate(cur.getDate()+1); }
+      return cnt;
+    }
+    return contarDiasCobro(hastaStr, desdeStr2);
+  }
+
+  // Auto-calcular pagoActual contando fechas vencidas
   const hoy = new Date(); hoy.setHours(0,0,0,0);
   let pagoActual = 1;
-  for(let n = 0; n < d.plazo; n++){
-    const fp = getNthFechaPago(n);
-    fp.setHours(0,0,0,0);
-    if(fp <= hoy){
-      // Esta fecha ya venció → este es como mínimo el pago actual
-      pagoActual = n + 2; // el siguiente es el pendiente
-    } else {
-      break;
-    }
+  for(let n=0; n<d.plazo; n++){
+    const fp = getNthFechaPago(n); fp.setHours(0,0,0,0);
+    if(fp <= hoy) pagoActual = n+2; else break;
   }
   pagoActual = Math.max(1, Math.min(pagoActual, d.plazo));
+  const ultimaFecha = getNthFechaPago(d.plazo-1); ultimaFecha.setHours(0,0,0,0);
+  if(ultimaFecha < hoy) return null;
 
-  // Si ya pasaron todos los pagos → liquidada
-  if(getNthFechaPago(d.plazo - 1) < hoy) return null;
-
-  // ── ITERAR DESDE pagoActual para encontrar el periodo navegado ──
   let plazoActual = pagoActual;
 
-  for(let safety = 0; safety < 500; safety++){
+  for(let safety=0; safety<500; safety++){
     if(plazoActual > d.plazo) return null;
 
-    // limitePago: fecha de vencimiento de este pago (índice base-0 = plazoActual-1)
-    const limitePago = getNthFechaPago(plazoActual - 1);
-    limitePago.setHours(0,0,0,0);
+    const limitePago = getNthFechaPago(plazoActual-1); limitePago.setHours(0,0,0,0);
 
-    // desdeConteo:
-    // - Para el primer pago contabilizado (pagoActual) → desde fechaAgregado
-    // - Para pagos siguientes → desde la fecha del pago anterior
     let desdeConteo;
-    if(plazoActual === pagoActual){
-      desdeConteo = new Date(fAgre);
-    } else {
-      desdeConteo = getNthFechaPago(plazoActual - 2);
-    }
+    if(plazoActual === pagoActual) desdeConteo = new Date(fAgre);
+    else desdeConteo = getNthFechaPago(plazoActual-2);
     desdeConteo.setHours(0,0,0,0);
 
-    const nTotal = Math.max(1, contarDiasCobro(_isoStr(limitePago), _isoStr(desdeConteo)));
-
-    // ¿Este plazo ya quedó antes del periodo navegado?
+    const nTotal = Math.max(1, contarDiasDeuda(_isoStr(limitePago), _isoStr(desdeConteo)));
     const pIniMenos1 = new Date(pIni); pIniMenos1.setDate(pIniMenos1.getDate()-1);
-    const cobrosAntes = contarDiasCobro(_isoStr(pIniMenos1), _isoStr(desdeConteo));
-    const quincenasEnRango = contarDiasCobro(_isoStr(limitePago), _isoStr(desdeConteo));
+    const cobrosAntes = contarDiasDeuda(_isoStr(pIniMenos1), _isoStr(desdeConteo));
+    const quincenasEnRango = contarDiasDeuda(_isoStr(limitePago), _isoStr(desdeConteo));
 
-    if(quincenasEnRango === 0 || cobrosAntes >= nTotal){
-      plazoActual++;
-      continue;
-    }
+    if(quincenasEnRango===0 || cobrosAntes>=nTotal){ plazoActual++; continue; }
+    if(limitePago < pIni){ plazoActual++; continue; }
 
-    // ¿Este plazo empieza después del periodo navegado?
-    if(limitePago < pIni){
-      plazoActual++;
-      continue;
-    }
-
-    // El periodo navegado cae dentro de este plazo
     const effectiveEnd = pFin < limitePago ? _isoStr(pFin) : _isoStr(limitePago);
-    const cobrosHastaFin = contarDiasCobro(effectiveEnd, _isoStr(desdeConteo));
+    const cobrosHastaFin = contarDiasDeuda(effectiveEnd, _isoStr(desdeConteo));
     const quincenaActual = Math.min(nTotal, Math.max(1, cobrosHastaFin));
-    const pagoQuincena = d.pago / nTotal;
 
-    return {
-      plazoActual,
-      nTotal,
-      quincenaActual,
-      pagoMensual: d.pago,
-      pagoQuincena,
-      limitePago,
-      liquidado: false
-    };
+    // SEMANAL: pago x semanas acumuladas; MENSUAL/QUINCENAL: pago/nTotal x quincenas
+    const pagoQuincena = d.freq==='SEMANAL'
+      ? d.pago * quincenaActual
+      : d.pago / nTotal * quincenaActual;
+
+    // Para SEMANAL: lista de numeros de semana/numero que caen en este periodo
+    let semanasEnPeriodo = null;
+    if(d.freq==='SEMANAL'){
+      semanasEnPeriodo = [];
+      const base = plazoActual - quincenaActual + 1;
+      for(let s=0; s<quincenaActual; s++) semanasEnPeriodo.push(base+s);
+    }
+
+    return { plazoActual, nTotal, quincenaActual, pagoMensual:d.pago, pagoQuincena, limitePago, liquidado:false, semanasEnPeriodo };
   }
   return null;
 }
@@ -1625,37 +1614,59 @@ function renderDeu(){
       </div>`;
     }
 
-    const {plazoActual, nTotal, quincenaActual, pagoQuincena} = calc;
+    const {plazoActual, nTotal, quincenaActual, pagoQuincena, semanasEnPeriodo} = calc;
     const restantes = Math.max(0, d.plazo - plazoActual + 1);
     const pct = d.plazo>0 ? Math.round(plazoActual/d.plazo*100) : 0;
-    const label = S.modo==='QUINCENAL'?'Quincena':'Semana';
-    const sublbl = `${label} ${quincenaActual}/${nTotal} · Pago ${plazoActual}/${d.plazo}`;
-    // Saldo actual = total con intereses − pagos ya realizados (plazoActual-1 pagos completados)
-    const pagosYaHechos = Math.max(0, plazoActual - 1);
-    const saldoActual = Math.max(0, totalPagar - pagosYaHechos * d.pago);
+    let sublbl;
+    if(d.freq==='SEMANAL' && semanasEnPeriodo){
+      const p=PERIODOS[S.periodoIdx];
+      const pLabel=p?new Date(p.ini+'T12:00:00').toLocaleDateString('es-MX',{day:'numeric',month:'short'})+' - '+new Date(p.fin+'T12:00:00').toLocaleDateString('es-MX',{day:'numeric',month:'short'}):'';
+      const tipo=d.esTanda?'Tanda':'Pago';
+      sublbl='Periodo '+pLabel+' · '+tipo+(semanasEnPeriodo.length>1?'s':'')+' '+semanasEnPeriodo.join(', ')+' / '+d.plazo;
+    } else {
+      const label=S.modo==='QUINCENAL'?'Quincena':'Semana';
+      sublbl=label+' '+quincenaActual+'/'+nTotal+' · '+(d.esTanda?'Tanda':'Pago')+' '+plazoActual+'/'+d.plazo;
+    }
 
-    return `<div class="deu">
-      <div class="deu-hdr">
-        <div class="deu-name">${d.concepto}</div>
-        <span class="badge a">${d.freq}</span>
-      </div>
-      <div class="deu-stats">
-        <div class="deu-stat">Pago: <span>${plazoActual} de ${d.plazo}</span></div>
-        <div class="deu-stat">Faltan: <span>${restantes} pagos</span></div>
-      </div>
-      <div style="font-size:10px;color:var(--teal);font-weight:600;margin-bottom:4px">${sublbl}</div>
-      <div class="prog"><div class="prog-f" style="width:${pct}%;background:var(--green)"></div></div>
-      ${interes>0?`<div class="deu-rates">
-        <div class="rate-item"><div class="rate-l">Tasa anual aprox.</div><div class="rate-v">${tasa.toFixed(1)}%</div></div>
-        <div class="rate-item"><div class="rate-l">Interés total</div><div class="rate-v r">${mxn(interes)}</div></div>
-        <div class="rate-item"><div class="rate-l">Se debe aún</div><div class="rate-v r" style="color:var(--amber)">${mxn(saldoActual)}</div></div>
-      </div>`:''}
-      <div class="deu-pago-row">
-        <span style="font-size:11px;color:var(--text2)">Pago ${d.freq.toLowerCase()}: ${mxn(d.pago)} → este periodo:</span>
-        <span style="font-size:13px;font-weight:700;color:var(--amber);font-family:var(--mono)">-${mxn(pagoQuincena)}</span>
-        <span class="ch-del" onclick="delDeu(${i})">×</span>
-      </div>
-    </div>`;
+
+    const pagosYaHechos=Math.max(0,plazoActual-1);
+    const saldoActual=Math.max(0,totalPagar-pagosYaHechos*d.pago);
+    const esDiaPremio=d.esTanda&&semanasEnPeriodo&&semanasEnPeriodo.includes(d.tandaNum);
+    const pagosACobrar=esDiaPremio?semanasEnPeriodo.filter(n=>n!==d.tandaNum):(semanasEnPeriodo||null);
+    const montoCobrar=esDiaPremio?(pagosACobrar.length*d.pago):pagoQuincena;
+    const premioPeriodo=esDiaPremio?((d.tandaTotal-1)*d.pago):0;
+    let pagoRow;
+    if(esDiaPremio){
+      const cobStr=pagosACobrar.length>0?'Cobros: '+pagosACobrar.join(', ')+' = '+mxn(montoCobrar):'Sin cobros este periodo';
+      pagoRow='<div class="deu-pago-row" style="flex-direction:column;align-items:flex-start;gap:4px">'
+        +'<span style="font-size:12px;font-weight:700;color:var(--green)">FELICIDADES — TANDA '+d.tandaNum+'/'+d.tandaTotal+' HOY TE TOCA PREMIO, NO PAGAS TU NUMERO</span>'
+        +'<span style="font-size:11px;color:var(--text2)">'+cobStr+'</span>'
+        +'<div style="display:flex;align-items:center;gap:8px">'
+        +(montoCobrar>0?'<span style="font-size:13px;font-weight:700;color:var(--amber);font-family:var(--mono)">-'+mxn(montoCobrar)+'</span>':'<span style="font-size:13px;font-weight:700;color:var(--green)">$0.00</span>')
+        +'<span style="font-size:12px;color:var(--green);font-weight:600">+'+mxn(premioPeriodo)+' en percepciones</span>'
+        +'<span class="ch-del" onclick="delDeu('+i+')">x</span></div></div>';
+    } else if(d.esTanda){
+      const numStr=semanasEnPeriodo?'Tanda'+(semanasEnPeriodo.length>1?'s':'')+' '+semanasEnPeriodo.join(', ')+'/'+d.tandaTotal:'Tanda '+plazoActual+'/'+d.tandaTotal;
+      pagoRow='<div class="deu-pago-row"><span style="font-size:11px;color:var(--text2)">'+numStr+'</span>'
+        +'<span style="font-size:13px;font-weight:700;color:var(--amber);font-family:var(--mono)">-'+mxn(montoCobrar)+'</span>'
+        +'<span class="ch-del" onclick="delDeu('+i+')">x</span></div>';
+    } else {
+      pagoRow='<div class="deu-pago-row"><span style="font-size:11px;color:var(--text2)">Pago '+d.freq.toLowerCase()+': '+mxn(d.pago)+' → este periodo:</span>'
+        +'<span style="font-size:13px;font-weight:700;color:var(--amber);font-family:var(--mono)">-'+mxn(pagoQuincena)+'</span>'
+        +'<span class="ch-del" onclick="delDeu('+i+')">x</span></div>';
+    }
+    return '<div class="deu">'
+      +'<div class="deu-hdr"><div class="deu-name">'+d.concepto+(d.esTanda?' <span style="font-size:10px;color:var(--teal)">[TANDA]</span>':'')+'</div>'
+      +'<span class="badge a">'+d.freq+'</span></div>'
+      +'<div class="deu-stats"><div class="deu-stat">'+(d.esTanda?'Numero:':'Pago:')+' <span>'+plazoActual+' de '+d.plazo+'</span></div>'
+      +'<div class="deu-stat">Faltan: <span>'+restantes+' '+(d.esTanda?'numeros':'pagos')+'</span></div></div>'
+      +'<div style="font-size:10px;color:var(--teal);font-weight:600;margin-bottom:4px">'+sublbl+'</div>'
+      +'<div class="prog"><div class="prog-f" style="width:'+pct+'%;background:var(--green)"></div></div>'
+      +(interes>0?'<div class="deu-rates"><div class="rate-item"><div class="rate-l">Tasa anual aprox.</div><div class="rate-v">'+tasa.toFixed(1)+'%</div></div>'
+        +'<div class="rate-item"><div class="rate-l">Interes total</div><div class="rate-v r">'+mxn(interes)+'</div></div>'
+        +'<div class="rate-item"><div class="rate-l">Se debe aun</div><div class="rate-v r" style="color:var(--amber)">'+mxn(saldoActual)+'</div></div></div>':'')
+      +pagoRow+'</div>';
+
   }).join('');
   id('tot-deu').textContent = '-'+mxn(calcTotalDeu());
 }
@@ -2141,69 +2152,76 @@ function delTar(i){
 // DEUDAS
 function checkDeuFecha(){
   const v=id('deu-ini').value;
-  const freq=id('deu-freq').value||'MENSUAL';
-  const pl=parseInt(id('deu-pl').value)||0;
-  const box=id('deu-fnote'); box.style.display='block';
-  if(!v){ box.className='ibox'; box.textContent='Ingresa la fecha del primer pago.'; return; }
+  const freq=(id('deu-freq')&&id('deu-freq').value)||'MENSUAL';
+  const pl=parseInt((id('deu-pl')&&id('deu-pl').value)||60);
+  const box=id('deu-fnote'); if(!box) return;
+  box.style.display='block';
+  if(!v){box.className='ibox';box.textContent='Ingresa la fecha del primer pago.';return;}
   const hoy=new Date(); hoy.setHours(0,0,0,0);
   const fIni=new Date(v+'T12:00:00'); fIni.setHours(0,0,0,0);
-
-  if(fIni > hoy){
-    box.className='ibox';
-    box.textContent='Primer pago a futuro — se dividirá en quincenas hasta esa fecha.';
-    return;
-  }
-
-  // Contar cuántos pagos ya han vencido
-  function getNthFecha(n){
+  if(fIni>hoy){box.className='ibox';box.textContent='Primer pago a futuro — se calculará desde esa fecha.';return;}
+  // Contar pagos vencidos
+  function getNthF(n){
     if(freq==='MENSUAL'){
-      const dia=fIni.getDate();
-      const f=new Date(fIni.getFullYear(), fIni.getMonth()+n, dia);
-      return f;
+      const f=new Date(fIni.getFullYear(),fIni.getMonth()+n,fIni.getDate()); return f;
     } else if(freq==='QUINCENAL'){
-      let y=fIni.getFullYear(), m=fIni.getMonth();
-      let half=fIni.getDate()<=15?1:2, count=0;
+      let y=fIni.getFullYear(),m=fIni.getMonth(),half=fIni.getDate()<=15?1:2,cnt=0;
       for(let i=0;i<200;i++){
-        const finMes=new Date(y,m+1,0).getDate();
-        const f=half===1?new Date(y,m,15):new Date(y,m,finMes);
-        if(f>=fIni){ if(count===n) return f; count++; }
-        half++; if(half>2){half=1;m++;if(m>11){m=0;y++;}}
+        const fin=new Date(y,m+1,0).getDate();
+        const f=half===1?new Date(y,m,15):new Date(y,m,fin);
+        if(f>=fIni){if(cnt===n)return f;cnt++;}
+        half++;if(half>2){half=1;m++;if(m>11){m=0;y++;}}
       }
       return fIni;
     } else {
-      const cursor=new Date(fIni);
-      cursor.setDate(cursor.getDate()+n*7);
-      return cursor;
+      const f=new Date(fIni); f.setDate(f.getDate()+n*7); return f;
     }
   }
-
-  let pagosVencidos=0;
-  for(let n=0; n<(pl||60); n++){
-    const fp=getNthFecha(n); fp.setHours(0,0,0,0);
-    if(fp<=hoy) pagosVencidos=n+1;
-    else break;
+  let vencidos=0;
+  for(let n=0;n<(pl||60);n++){
+    const fp=getNthF(n); fp.setHours(0,0,0,0);
+    if(fp<=hoy) vencidos=n+1; else break;
   }
-
-  if(pagosVencidos===0){
-    box.className='obox'; box.textContent='Primer pago hoy — se contabiliza en este periodo.';
-  } else {
-    box.className='wbox';
-    box.textContent=`Fecha pasada — se detectan automáticamente ${pagosVencidos} pago${pagosVencidos>1?'s':''} ya realizados. No necesitas ingresar nada más.`;
-  }
+  if(vencidos===0){box.className='obox';box.textContent='Primer pago hoy — se contabiliza en este periodo.';}
+  else{box.className='wbox';box.textContent='Fecha pasada — se detectan automaticamente '+vencidos+' pago'+(vencidos>1?'s':'')+' ya realizados. No necesitas ingresar nada mas.';}
 }
 function setDeuFreq(){
   const v=id('deu-freq').value;
-  id('deu-dia-s-w').style.display=v==='SEMANAL'?'block':'none';
+  if(id('deu-dia-n-w')) id('deu-dia-n-w').style.display=v==='SEMANAL'?'none':'block';
+  if(id('deu-dia-s-w')) id('deu-dia-s-w').style.display=v==='SEMANAL'?'block':'none';
+  const lbl=id('deu-pg-lbl');
+  if(lbl){
+    if(v==='SEMANAL') lbl.textContent='Pago semanal con intereses $';
+    else if(v==='QUINCENAL') lbl.textContent='Pago quincenal con intereses $';
+    else lbl.textContent='Pago mensual con intereses $';
+  }
+}
+function setDeuTipo(){
+  const tipo=id('deu-tipo')?id('deu-tipo').value:'normal';
+  if(id('deu-campos-normal')) id('deu-campos-normal').style.display=tipo==='tanda'?'none':'block';
+  if(id('deu-campos-tanda')) id('deu-campos-tanda').style.display=tipo==='tanda'?'block':'none';
+}
+function calcTandaInfo(){
+  const total=parseInt(id('tan-total')&&id('tan-total').value)||0;
+  const num=parseInt(id('tan-num')&&id('tan-num').value)||0;
+  const pg=parseFloat(id('deu-pg')&&id('deu-pg').value)||0;
+  const box=id('deu-info');
+  if(!total||!num||!pg){if(box)box.style.display='none';return;}
+  const totalPagar=(total-1)*pg;
+  if(box){box.style.display='block';box.className='obox';
+    box.innerHTML='Pagas '+(total-1)+' numeros x '+mxn(pg)+' = <strong>'+mxn(totalPagar)+'</strong> &middot; Premio cuando te toque: <strong>+'+mxn(totalPagar)+'</strong>';}
 }
 function toggleDeuPrev(){ id('deu-prev-b').style.display=id('deu-prev').value==='si'?'block':'none'; }
 function calcDeuInfo(){
+  const tipo=id('deu-tipo')?id('deu-tipo').value:'normal';
+  if(tipo==='tanda'){calcTandaInfo();return;}
   const m=parseFloat(id('deu-m').value)||0, pl=parseInt(id('deu-pl').value)||0, pg=parseFloat(id('deu-pg').value)||0;
   const box=id('deu-info');
   if(!m||!pl||!pg){box.style.display='none';return;}
   const total=pg*pl, int=Math.max(0,total-m);
   const tasa=int>0?(int/m/(pl/12)*100):0;
   box.style.display='block'; box.className='ibox';
-  box.innerHTML=`Total a pagar: <strong>${mxn(total)}</strong> · Interés: <strong>${mxn(int)}</strong> · Tasa aprox: <strong>${tasa.toFixed(1)}% anual</strong>`;
+  box.innerHTML='Total a pagar: <strong>'+mxn(total)+'</strong> &middot; Inter&eacute;s: <strong>'+mxn(int)+'</strong> &middot; Tasa aprox: <strong>'+tasa.toFixed(1)+'% anual</strong>';
 }
 function calcDeuSaldo(){
   const pg=parseFloat(id('deu-pg').value)||0, n=parseInt(id('deu-np').value)||0, m=parseFloat(id('deu-m').value)||0;
@@ -2213,19 +2231,33 @@ function calcDeuSaldo(){
   box.textContent=`${n} pagos × ${mxn(pg)} = ${mxn(pg*n)} pagados · Saldo est.: ${mxn(saldo)}`;
 }
 function guardarDeu(){
-  const c=id('deu-c').value.trim(), m=parseFloat(id('deu-m').value)||0, pl=parseInt(id('deu-pl').value)||0;
-  const pg=parseFloat(id('deu-pg').value)||0, freq=id('deu-freq').value;
-  const ini=id('deu-ini').value, adq=id('deu-adq').value;
-  if(!c||!m||!pl||!pg){alert('Completa todos los campos requeridos');return;}
-  if(!ini){alert('La fecha del primer pago es requerida');return;}
-  const fechaAgregado = new Date().toISOString().split('T')[0];
-  // El día de pago se extrae directo de la fecha ini
-  const deu={concepto:c, monto:m, plazo:pl, pago:pg, freq, ini, adq, fechaAgregado};
-  S.deudas.push(deu);
-  saveDeuDB(deu).catch(console.warn);
-  save();
-  id('deu-c').value=''; id('deu-m').value=''; id('deu-pl').value=''; id('deu-pg').value='';
-  id('deu-fnote').style.display='none'; id('deu-info').style.display='none';
+  const tipo=id('deu-tipo')?id('deu-tipo').value:'normal';
+  const freq=id('deu-freq').value;
+  const ini=id('deu-ini').value, adq=(id('deu-adq')&&id('deu-adq').value)||'';
+  const fechaAgregado=new Date().toISOString().split('T')[0];
+  const pg=parseFloat(id('deu-pg').value)||0;
+
+  if(tipo==='tanda'){
+    const nombre=(id('tan-nombre')&&id('tan-nombre').value.trim())||'';
+    const tanTotal=parseInt(id('tan-total')&&id('tan-total').value)||0;
+    const tanNum=parseInt(id('tan-num')&&id('tan-num').value)||0;
+    if(!nombre||!tanTotal||!tanNum||!pg){alert('Completa todos los campos de la tanda');return;}
+    if(!ini){alert('La fecha de inicio de la tanda es requerida');return;}
+    if(tanNum>tanTotal){alert('Tu numero no puede ser mayor al total');return;}
+    const deu={concepto:nombre,monto:0,plazo:tanTotal,pago:pg,freq,ini,adq,fechaAgregado,esTanda:true,tandaNum:tanNum,tandaTotal:tanTotal};
+    S.deudas.push(deu); saveDeuDB(deu).catch(console.warn); save();
+  } else {
+    const c=id('deu-c').value.trim(), m=parseFloat(id('deu-m').value)||0, pl=parseInt(id('deu-pl').value)||0;
+    if(!c||!m||!pl||!pg){alert('Completa todos los campos requeridos');return;}
+    if(!ini){alert('La fecha del primer pago es requerida');return;}
+    const deu={concepto:c,monto:m,plazo:pl,pago:pg,freq,ini,adq,fechaAgregado};
+    S.deudas.push(deu); saveDeuDB(deu).catch(console.warn); save();
+  }
+  ['deu-c','deu-m','deu-pl','deu-pg','tan-nombre','tan-total','tan-num'].forEach(fid=>{const el=id(fid);if(el)el.value='';});
+  if(id('deu-tipo'))id('deu-tipo').value='normal';
+  setDeuTipo();
+  if(id('deu-fnote'))id('deu-fnote').style.display='none';
+  if(id('deu-info'))id('deu-info').style.display='none';
   closeModal('m-deu'); window.renderDeu(); renderPrincipal();
 }
 function delDeu(i){
@@ -2786,36 +2818,60 @@ window.renderDeu = function(){
       </div>`;
     }
 
-    const {plazoActual, nTotal, quincenaActual, pagoMensual, pagoQuincena} = calc;
-    const restantes = Math.max(0, d.plazo - plazoActual + 1);
-    const pct = d.plazo>0 ? Math.round(plazoActual/d.plazo*100) : 0;
-    const label = S.modo==='QUINCENAL'?'Quincena':'Semana';
-    const sublbl = `${label} ${quincenaActual} de ${nTotal} · Pago ${plazoActual} de ${d.plazo}`;
-    const pagosYaHechos = Math.max(0, plazoActual - 1);
-    const saldoActual = Math.max(0, totalPagar - pagosYaHechos * d.pago);
-
-    return `<div class="deu">
-      <div class="deu-hdr">
-        <div class="deu-name" style="font-size:15px;font-weight:700;color:var(--text)">${d.concepto}</div>
-        <span class="badge a" style="font-size:11px">${d.freq}</span>
-      </div>
-      <div class="deu-stats" style="margin:6px 0;gap:12px">
-        <div class="deu-stat" style="font-size:13px;color:var(--text2)">Pago <span style="color:var(--text);font-weight:700">${plazoActual}</span> de <span style="color:var(--text);font-weight:700">${d.plazo}</span></div>
-        <div class="deu-stat" style="font-size:13px;color:var(--text2)">Faltan <span style="color:var(--green);font-weight:700">${restantes}</span></div>
-      </div>
-      <div style="font-size:12px;color:var(--teal);font-weight:600;margin-bottom:6px">${sublbl}</div>
-      <div class="prog"><div class="prog-f" style="width:${pct}%;background:var(--green)"></div></div>
-      ${interes>0?`<div class="deu-rates" style="margin-top:8px">
-        <div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Tasa anual</div><div class="rate-v" style="font-size:13px;color:var(--text);font-weight:700">${tasa.toFixed(1)}%</div></div>
-        <div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Interés total</div><div class="rate-v r" style="font-size:13px;font-weight:700">${mxn(interes)}</div></div>
-        <div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Se debe aún</div><div class="rate-v r" style="font-size:13px;font-weight:700;color:var(--amber)">${mxn(saldoActual)}</div></div>
-      </div>`:''}
-      <div class="deu-pago-row" style="margin-top:10px">
-        <span style="font-size:13px;color:var(--text2);font-weight:500">Pago ${d.freq.toLowerCase()}: ${mxn(d.pago)} → este periodo:</span>
-        <span style="font-size:15px;font-weight:800;color:var(--amber);font-family:var(--mono)">-${mxn(pagoQuincena)}</span>
-        <span class="ch-del" onclick="borrarDeu(${i})">×</span>
-      </div>
-    </div>`;
+    const {plazoActual, nTotal, quincenaActual, pagoMensual, pagoQuincena, semanasEnPeriodo} = calc;
+    const restantes=Math.max(0,d.plazo-plazoActual+1);
+    const pct=d.plazo>0?Math.round(plazoActual/d.plazo*100):0;
+    // Label dinamico segun frecuencia
+    let sublbl;
+    if(d.freq==='SEMANAL' && semanasEnPeriodo){
+      const p=PERIODOS[S.periodoIdx];
+      const pLabel=p?new Date(p.ini+'T12:00:00').toLocaleDateString('es-MX',{day:'numeric',month:'short'})+' - '+new Date(p.fin+'T12:00:00').toLocaleDateString('es-MX',{day:'numeric',month:'short'}):'';
+      const tipo=d.esTanda?'Tanda':'Pago';
+      sublbl='Periodo '+pLabel+' · '+tipo+(semanasEnPeriodo.length>1?'s':'')+' '+semanasEnPeriodo.join(', ')+' / '+d.plazo;
+    } else {
+      const label=S.modo==='QUINCENAL'?'Quincena':'Semana';
+      sublbl=label+' '+quincenaActual+' de '+nTotal+' · '+(d.esTanda?'Tanda':'Pago')+' '+plazoActual+' de '+d.plazo;
+    }
+    const pagosYaHechos=Math.max(0,plazoActual-1);
+    const saldoActual=Math.max(0,totalPagar-pagosYaHechos*d.pago);
+    // Tanda logic
+    const esDiaPremio=d.esTanda&&semanasEnPeriodo&&semanasEnPeriodo.includes(d.tandaNum);
+    const pagosACobrar=esDiaPremio?semanasEnPeriodo.filter(n=>n!==d.tandaNum):(semanasEnPeriodo||null);
+    const montoCobrar=esDiaPremio?(pagosACobrar.length*d.pago):pagoQuincena;
+    const premioPeriodo=esDiaPremio?((d.tandaTotal-1)*d.pago):0;
+    let pagoRowM;
+    if(esDiaPremio){
+      const cobStr=pagosACobrar.length>0?'Cobros: '+pagosACobrar.join(', ')+' = '+mxn(montoCobrar):'Sin cobros este periodo';
+      pagoRowM='<div class="deu-pago-row" style="flex-direction:column;align-items:flex-start;gap:4px;margin-top:10px">'
+        +'<span style="font-size:12px;font-weight:700;color:var(--green)">FELICIDADES — TANDA '+d.tandaNum+'/'+d.tandaTotal+' HOY TE TOCA PREMIO</span>'
+        +'<span style="font-size:11px;color:var(--text2)">'+cobStr+'</span>'
+        +'<div style="display:flex;align-items:center;gap:8px">'
+        +(montoCobrar>0?'<span style="font-size:15px;font-weight:800;color:var(--amber);font-family:var(--mono)">-'+mxn(montoCobrar)+'</span>':'<span style="font-size:15px;font-weight:800;color:var(--green)">$0.00</span>')
+        +'<span style="font-size:12px;color:var(--green);font-weight:600">+'+mxn(premioPeriodo)+'</span>'
+        +'<span class="ch-del" onclick="borrarDeu('+i+')">×</span></div></div>';
+    } else if(d.esTanda){
+      const numStr=semanasEnPeriodo?'Tanda'+(semanasEnPeriodo.length>1?'s':'')+' '+semanasEnPeriodo.join(', ')+'/'+d.tandaTotal:'Tanda '+plazoActual+'/'+d.tandaTotal;
+      pagoRowM='<div class="deu-pago-row" style="margin-top:10px"><span style="font-size:13px;color:var(--text2);font-weight:500">'+numStr+'</span>'
+        +'<span style="font-size:15px;font-weight:800;color:var(--amber);font-family:var(--mono)">-'+mxn(montoCobrar)+'</span>'
+        +'<span class="ch-del" onclick="borrarDeu('+i+')">×</span></div>';
+    } else {
+      pagoRowM='<div class="deu-pago-row" style="margin-top:10px"><span style="font-size:13px;color:var(--text2);font-weight:500">Pago '+d.freq.toLowerCase()+': '+mxn(d.pago)+' → este periodo:</span>'
+        +'<span style="font-size:15px;font-weight:800;color:var(--amber);font-family:var(--mono)">-'+mxn(pagoQuincena)+'</span>'
+        +'<span class="ch-del" onclick="borrarDeu('+i+')">×</span></div>';
+    }
+    return '<div class="deu">'
+      +'<div class="deu-hdr"><div class="deu-name" style="font-size:15px;font-weight:700;color:var(--text)">'+d.concepto+(d.esTanda?' <span style="font-size:10px;color:var(--teal)">[TANDA]</span>':'')+'</div>'
+      +'<span class="badge a" style="font-size:11px">'+d.freq+'</span></div>'
+      +'<div class="deu-stats" style="margin:6px 0;gap:12px">'
+      +'<div class="deu-stat" style="font-size:13px;color:var(--text2)">'+(d.esTanda?'Número':'Pago')+' <span style="color:var(--text);font-weight:700">'+plazoActual+'</span> de <span style="color:var(--text);font-weight:700">'+d.plazo+'</span></div>'
+      +'<div class="deu-stat" style="font-size:13px;color:var(--text2)">Faltan <span style="color:var(--green);font-weight:700">'+restantes+'</span></div></div>'
+      +'<div style="font-size:12px;color:var(--teal);font-weight:600;margin-bottom:6px">'+sublbl+'</div>'
+      +'<div class="prog"><div class="prog-f" style="width:'+pct+'%;background:var(--green)"></div></div>'
+      +(interes>0?'<div class="deu-rates" style="margin-top:8px">'
+        +'<div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Tasa anual</div><div class="rate-v" style="font-size:13px;color:var(--text);font-weight:700">'+tasa.toFixed(1)+'%</div></div>'
+        +'<div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Interes total</div><div class="rate-v r" style="font-size:13px;font-weight:700">'+mxn(interes)+'</div></div>'
+        +'<div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Se debe aun</div><div class="rate-v r" style="font-size:13px;font-weight:700;color:var(--amber)">'+mxn(saldoActual)+'</div></div></div>':'')
+      +pagoRowM+'</div>';
   }).join('');
   id('tot-deu').textContent='-'+mxn(calcTotalDeu());
 };

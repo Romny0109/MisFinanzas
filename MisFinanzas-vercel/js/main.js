@@ -1087,75 +1087,46 @@ function calcSvcEnPeriodo(s){
 
   const diaPago = s.diaPago;
   const cadaMeses = s.cadacuanto || 1;
-  
-  // fechaReal = cuando realmente se agregó el servicio (para el primer ciclo)
-  const fechaReal = s.fechaAgregado ? new Date(s.fechaAgregado+'T12:00:00') : new Date();
-  fechaReal.setHours(0,0,0,0);
-  
-  // Si tiene proxPago, el pago anterior ficticio fue proxPago - cadaMeses
-  // Pero la fecha real de alta es hoy o cuando se creó
-  const tieneProxPago = s.proxPago && s.proxPago !== '';
+  const fAgre = s.fechaAgregado ? new Date(s.fechaAgregado+'T12:00:00') : new Date();
+  fAgre.setHours(0,0,0,0);
 
-  function getPayDate(baseDate, offsetMeses){
-    let d = new Date(baseDate.getFullYear(), baseDate.getMonth() + offsetMeses, diaPago);
+  function getNextPayDate(from, offset){
+    let d = new Date(from.getFullYear(), from.getMonth(), diaPago);
+    if(d < from) d = new Date(from.getFullYear(), from.getMonth()+1, diaPago);
     const maxD = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
     if(diaPago > maxD) d.setDate(maxD);
+    if(offset > 0){
+      d = new Date(d.getFullYear(), d.getMonth() + offset * cadaMeses, diaPago);
+      const maxD2 = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+      if(diaPago > maxD2) d.setDate(maxD2);
+    }
     return d;
   }
 
-  // Generar fechas de pago hacia adelante desde fechaReal
-  // Para mensual: próximo día X después de fechaReal, luego cada cadaMeses
-  // Para otros: si tiene proxPago, usar esa fecha como primer pago
-  let primerPago;
-  if(tieneProxPago){
-    primerPago = new Date(s.proxPago+'T12:00:00');
-    primerPago.setHours(0,0,0,0);
-  } else {
-    // Próxima ocurrencia de diaPago después de fechaReal
-    primerPago = new Date(fechaReal.getFullYear(), fechaReal.getMonth(), diaPago);
-    if(primerPago <= fechaReal) primerPago = new Date(fechaReal.getFullYear(), fechaReal.getMonth()+1, diaPago);
-    const maxD = new Date(primerPago.getFullYear(), primerPago.getMonth()+1, 0).getDate();
-    if(diaPago > maxD) primerPago.setDate(maxD);
-  }
-
-  // Iterar ciclos de pago
-  let desdeConteo = new Date(fechaReal); // primer ciclo empieza desde cuando se agregó
-  let pagoActual = new Date(primerPago);
+  let desdeConteo = new Date(fAgre);
+  let ciclo = 0;
 
   for(let safety = 0; safety < 200; safety++){
-    if(pagoActual <= desdeConteo){
-      // Este pago ya pasó, avanzar
-      desdeConteo = new Date(pagoActual);
-      pagoActual = getPayDate(pagoActual, cadaMeses);
+    const limitePago = getNextPayDate(fAgre, ciclo);
+
+    if(limitePago <= desdeConteo){
+      ciclo++;
       continue;
     }
 
-    // Contar quincenas/semanas desde desdeConteo hasta pagoActual
-    const nTotal = Math.max(1, contarDiasCobro(_isoStr(pagoActual), _isoStr(desdeConteo)));
+    const nTotal = Math.max(1, contarDiasCobro(_isoStr(limitePago), _isoStr(desdeConteo)));
 
-    // ¿El periodo actual cae dentro de este ciclo?
-    if(pFin < desdeConteo){
-      // Periodo es antes de este ciclo — ya pasó
-      return null;
-    }
-    if(pIni > pagoActual){
-      // Periodo es después de este ciclo — avanzar
-      desdeConteo = new Date(pagoActual);
-      pagoActual = getPayDate(pagoActual, cadaMeses);
-      continue;
-    }
-
-    // El periodo cae en este ciclo
     const pIniMenos1 = new Date(pIni); pIniMenos1.setDate(pIniMenos1.getDate()-1);
     const cobrosAntes = contarDiasCobro(_isoStr(pIniMenos1), _isoStr(desdeConteo));
-    
-    if(cobrosAntes >= nTotal){
-      desdeConteo = new Date(pagoActual);
-      pagoActual = getPayDate(pagoActual, cadaMeses);
+
+    const quincenasEnRango = contarDiasCobro(_isoStr(limitePago), _isoStr(desdeConteo));
+    if(quincenasEnRango === 0 || cobrosAntes >= nTotal){
+      desdeConteo = new Date(limitePago);
+      ciclo++;
       continue;
     }
 
-    const effectiveEnd = pFin < pagoActual ? _isoStr(pFin) : _isoStr(pagoActual);
+    const effectiveEnd = pFin < limitePago ? _isoStr(pFin) : _isoStr(limitePago);
     const cobrosHastaFin = contarDiasCobro(effectiveEnd, _isoStr(desdeConteo));
     const quincenaActual = Math.min(nTotal, Math.max(1, cobrosHastaFin));
 
@@ -1164,10 +1135,9 @@ function calcSvcEnPeriodo(s){
       pagoQuincena: s.monto / nTotal,
       nTotal,
       quincenaActual,
-      proxPago: pagoActual
+      proxPago: limitePago
     };
   }
-  // Fallback
   return { pagoTotal: s.monto, pagoQuincena: s.monto/2, nTotal: 2, quincenaActual: 1 };
 }
 
@@ -1435,6 +1405,30 @@ function freqLabel(n){
   const labels = {1:'mensual',2:'bimestral',3:'trimestral',6:'semestral',12:'anual'};
   return labels[n] || `cada ${n} meses`;
 }
+function calcProxPagoSvc(s){
+  if(!s.diaPago) return '';
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const dia = s.diaPago;
+  const cadaMeses = s.cadacuanto || 1;
+  if(cadaMeses === 1){
+    // Mensual: próximo día X (este mes si no ha pasado, si no el siguiente)
+    let prox = new Date(hoy.getFullYear(), hoy.getMonth(), dia);
+    if(prox <= hoy) prox = new Date(hoy.getFullYear(), hoy.getMonth()+1, dia);
+    const maxD = new Date(prox.getFullYear(), prox.getMonth()+1, 0).getDate();
+    if(dia > maxD) prox.setDate(maxD);
+    return prox.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'});
+  } else {
+    // Bimestral+: si tiene proxPago guardado, usarlo; si ya pasó, sumar cadaMeses
+    if(s.proxPago){
+      let prox = new Date(s.proxPago+'T12:00:00'); prox.setHours(0,0,0,0);
+      while(prox <= hoy){
+        prox = new Date(prox.getFullYear(), prox.getMonth()+cadaMeses, prox.getDate());
+      }
+      return prox.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'});
+    }
+    return '';
+  }
+}
 function renderSvc(){
   const list = id('svc-list');
   const label = S.modo==='QUINCENAL'?'quincena':'semana';
@@ -1446,7 +1440,7 @@ function renderSvc(){
     const calc = calcSvcEnPeriodo(s);
     const freq = freqLabel(s.cadacuanto||1);
     const sublbl = calc ? `Q${calc.quincenaActual}/${calc.nTotal}` : '';
-    const proxFecha = calc && calc.proxPago ? calc.proxPago.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'}) : '';
+    const proxFecha = calcProxPagoSvc(s);
     return `<div class="svc">
       <div class="svc-info">
         <div class="svc-name">${s.concepto}</div>
@@ -1913,13 +1907,15 @@ async function delSvc(i){
       if(svc.id){
         await supa.from('servicios').delete().eq('id', svc.id);
       } else {
-        await supa.from('servicios').delete()
-          .eq('user_id', UID).eq('concepto', svc.concepto).eq('monto', svc.monto);
+        // Borrar la más reciente con mismo concepto
+        const {data} = await supa.from('servicios').select('id')
+          .eq('user_id', UID).eq('concepto', svc.concepto).limit(1);
+        if(data && data[0]) await supa.from('servicios').delete().eq('id', data[0].id);
       }
-    } catch(e){ console.error('delSvc:', e); }
+    } catch(e){ console.error('delSvc error:', e); }
     S.servicios.splice(i,1);
     localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
-    save(); window.renderSvc(); renderPrincipal();
+    window.renderSvc(); renderPrincipal();
   }
 }
 async function limpiarServicios(){
@@ -2394,7 +2390,7 @@ window.renderSvc = function(){
     const calc = calcSvcEnPeriodo(s);
     const freq = freqLabel(s.cadacuanto||1);
     const sublbl = calc ? `Q${calc.quincenaActual}/${calc.nTotal}` : '';
-    const proxFecha = calc && calc.proxPago ? calc.proxPago.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'}) : '';
+    const proxFecha = calcProxPagoSvc(s);
     return `<div class="svc">
       <div class="svc-info">
         <div class="svc-name">${s.concepto}</div>

@@ -1453,7 +1453,7 @@ function renderSvc(){
         <div style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--text2)">${mxn(s.monto)}/${(s.cadacuanto||1)>1?s.cadacuanto+'m':'mes'}</div>
         <div style="font-size:11px;color:var(--teal);margin-top:2px">-${mxn(calc?calc.pagoQuincena:0)} / ${label}</div>
       </div>
-      <span class="ch-del" data-action="del-svc" data-idx="${i}">×</span>
+      <span class="ch-del" onclick="borrarSvc(${i})">×</span>
     </div>`;
   }).join('');
   id('tot-svc').textContent = '-'+mxn(calcTotalSvc());
@@ -1708,7 +1708,7 @@ function bloquearSiSnapshot(){
   const tarBtn = document.querySelector('[onclick*="openModal(\'m-tar\')"]');
   if(tarBtn){ tarBtn.disabled = bloqueado; tarBtn.style.opacity = bloqueado?'.3':''; tarBtn.style.pointerEvents = bloqueado?'none':''; }
   // Botones de eliminar dentro de listas (× eliminar, × limpiar)
-  document.querySelectorAll('.btn-danger, [onclick*="limpiar"], [onclick*="delSvc"], [onclick*="delExt"], [onclick*="delMov"], [onclick*="delMsi"], [onclick*="delDeu"], [onclick*="delTar"], [onclick*="delOtro"], [onclick*="toggleMov"], [onclick*="toggleMsi"]').forEach(b=>{
+  document.querySelectorAll('.btn-danger, .ch-del, [onclick*="limpiar"], [onclick*="borrarSvc"], [onclick*="borrarExt"], [onclick*="borrarMov"], [onclick*="borrarMsi"], [onclick*="borrarDeu"], [onclick*="delTar"], [onclick*="delOtro"], [onclick*="toggleMov"], [onclick*="toggleMsi"], [onclick*="confirmarDelMsi"]').forEach(b=>{
     b.disabled = bloqueado;
     b.style.opacity = bloqueado ? '.3' : '';
     b.style.pointerEvents = bloqueado ? 'none' : '';
@@ -2369,7 +2369,60 @@ function updateDates(){
 }
 
 // ═══════════════════════════════════════════════════════
-// EVENT DELEGATION — fix delete/toggle buttons in innerHTML
+// BORRADO GLOBAL — funciones onclick directas
+// ═══════════════════════════════════════════════════════
+window.borrarSvc = async function(i){
+  const item = S.servicios[i];
+  if(item && item.id){
+    const {error} = await supa.from('servicios').delete().eq('id', item.id);
+    if(error) console.error('borrarSvc error:', error.message);
+  }
+  S.servicios.splice(i,1);
+  localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+  window.renderSvc(); renderPrincipal();
+};
+window.borrarExt = async function(i){
+  const item = S.extras[i];
+  if(item && item.id) await supa.from('extras').delete().eq('id', item.id);
+  S.extras.splice(i,1);
+  localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+  window.renderExt(); renderPrincipal(); renderAhorroConfig();
+};
+window.borrarMov = async function(i){
+  const item = S.movimientos[i];
+  if(item && item.id) await supa.from('movimientos').delete().eq('id', item.id);
+  S.movimientos.splice(i,1);
+  localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+  window.renderTDC(); renderPrincipal();
+};
+window.borrarMsi = async function(i){
+  const item = S.msis[i];
+  if(item && item.id) await supa.from('msis').delete().eq('id', item.id);
+  S.msis.splice(i,1);
+  localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+  window.renderTDC(); renderPrincipal();
+};
+window.borrarDeu = async function(i){
+  if(!confirm('¿Eliminar esta deuda?')) return;
+  const item = S.deudas[i];
+  if(item && item.id) await supa.from('deudas').delete().eq('id', item.id);
+  S.deudas.splice(i,1);
+  localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+  window.renderDeu(); renderPrincipal();
+};
+window.toggleMov = async function(i){
+  S.movimientos[i].incluir = S.movimientos[i].incluir==='SI'?'NO':'SI';
+  if(S.movimientos[i].id) await supa.from('movimientos').update({incluir:S.movimientos[i].incluir}).eq('id',S.movimientos[i].id);
+  save(); window.renderTDC(); renderPrincipal();
+};
+window.toggleMsi = async function(i){
+  S.msis[i].incluir = S.msis[i].incluir==='SI'?'NO':'SI';
+  if(S.msis[i].id) await supa.from('msis').update({incluir:S.msis[i].incluir}).eq('id',S.msis[i].id);
+  save(); window.renderTDC(); renderPrincipal();
+};
+
+// ═══════════════════════════════════════════════════════
+// EVENT DELEGATION — fallback for any remaining data-action buttons
 // ═══════════════════════════════════════════════════════
 document.addEventListener('click', function(e){
   const t = e.target;
@@ -2454,7 +2507,7 @@ window.renderSvc = function(){
         <div style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--text2)">${mxn(s.monto)}/${(s.cadacuanto||1)>1?s.cadacuanto+'m':'mes'}</div>
         <div style="font-size:11px;color:var(--teal);margin-top:2px">-${mxn(calc?calc.pagoQuincena:0)} / ${label}</div>
       </div>
-      <span class="ch-del" data-action="del-svc" data-idx="${i}" title="Eliminar">×</span>
+      <span class="ch-del" onclick="borrarSvc(${i})">×</span>
     </div>`;
   }).join('');
   id('tot-svc').textContent = '-'+mxn(calcTotalSvc());
@@ -2477,7 +2530,7 @@ window.renderExt = function(){
       <div class="ext-right">
         <div class="ext-a">+${mxn(e.monto)}</div>
       </div>
-      <span class="ch-del" data-action="del-ext" data-idx="${i}" title="Eliminar">×</span>
+      <span class="ch-del" onclick="borrarExt(${i})" title="Eliminar">×</span>
     </div>`).join('');
   id('tot-ext').textContent = '+'+mxn(calcTotalExtras());
 };
@@ -2570,13 +2623,13 @@ window.renderTDC = function(){
     movEl.innerHTML=movF.map(m=>{
       const i=S.movimientos.indexOf(m);
       return `<div class="chi">
-        <div class="chk ${m.incluir==='SI'?'on':'off'}" data-action="tog-mov" data-idx="${i}" style="cursor:${esGlobal?'default':'pointer'}">${m.incluir==='SI'?'✓':'✕'}</div>
+        <div class="chk ${m.incluir==='SI'?'on':'off'}" onclick="toggleMov(${i})" style="cursor:${esGlobal?'default':'pointer'}">${m.incluir==='SI'?'✓':'✕'}</div>
         <div class="ch-info">
           <div class="ch-name ${m.incluir==='NO'?'x':''}">${m.concepto}</div>
           <div class="ch-sub">${m.fecha||''} · ${m.tarjeta}</div>
         </div>
         <div class="ch-a ${m.incluir==='NO'?'x':''}">${mxn(m.monto)}</div>
-        ${!esGlobal?`<span class="ch-del" data-action="del-mov" data-idx="${i}">×</span>`:''}
+        ${!esGlobal?`<span class="ch-del" onclick="borrarMov(${i})">×</span>`:''}
       </div>`;
     }).join('');
   }
@@ -2671,7 +2724,7 @@ window.renderDeu = function(){
         <div class="prog"><div class="prog-f" style="width:100%;background:var(--green)"></div></div>
         <div class="deu-pago-row" style="margin-top:10px">
           <span style="font-size:13px;color:var(--green);font-weight:700">Liquidada</span>
-          <span class="ch-del" data-action="del-deu" data-idx="${i}">×</span>
+          <span class="ch-del" onclick="borrarDeu(${i})">×</span>
         </div>
       </div>`;
     }
@@ -2701,7 +2754,7 @@ window.renderDeu = function(){
       <div class="deu-pago-row" style="margin-top:10px">
         <span style="font-size:13px;color:var(--text2);font-weight:500">Pago ${d.freq.toLowerCase()}: ${mxn(d.pago)} → este periodo:</span>
         <span style="font-size:15px;font-weight:800;color:var(--amber);font-family:var(--mono)">-${mxn(pagoQuincena)}</span>
-        <span class="ch-del" data-action="del-deu" data-idx="${i}">×</span>
+        <span class="ch-del" onclick="borrarDeu(${i})">×</span>
       </div>
     </div>`;
   }).join('');
@@ -2793,11 +2846,14 @@ function toggleMsiSec(i){
   save(); window.renderMsi(); window.renderTDC(); renderPrincipal();
 }
 
-function confirmarDelMsi(i){
+async function confirmarDelMsi(i){
   if(confirm('¿Eliminar este MSI?')){
     if(confirm('¿Estás seguro? Esta acción no se puede deshacer.')){
+      const item = S.msis[i];
+      if(item && item.id) await supa.from('msis').delete().eq('id', item.id);
       S.msis.splice(i,1);
-      save(); window.renderMsi(); window.renderTDC(); renderPrincipal();
+      localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+      window.renderMsi(); window.renderTDC(); renderPrincipal();
     }
   }
 }

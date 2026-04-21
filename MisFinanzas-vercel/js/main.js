@@ -1007,7 +1007,7 @@ function calcDeuEnPeriodo(d){
     const limitePago = getNthFechaPago(plazoActual-1); limitePago.setHours(0,0,0,0);
 
     let desdeConteo;
-    if(plazoActual === pagoActual) desdeConteo = new Date(fAgre);
+    if(plazoActual === 1) desdeConteo = new Date(fAgre);
     else desdeConteo = getNthFechaPago(plazoActual-2);
     desdeConteo.setHours(0,0,0,0);
 

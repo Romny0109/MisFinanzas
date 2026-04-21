@@ -2200,16 +2200,21 @@ function setDeuTipo(){
   const tipo=id('deu-tipo')?id('deu-tipo').value:'normal';
   if(id('deu-campos-normal')) id('deu-campos-normal').style.display=tipo==='tanda'?'none':'block';
   if(id('deu-campos-tanda')) id('deu-campos-tanda').style.display=tipo==='tanda'?'block':'none';
+  if(id('deu-campos-fecha-normal')) id('deu-campos-fecha-normal').style.display=tipo==='tanda'?'none':'block';
+}
+function setDeuFreqTanda(){
+  const v=id('deu-freq-tan')?id('deu-freq-tan').value:'SEMANAL';
+  if(id('deu-dia-s-w-tan')) id('deu-dia-s-w-tan').style.display=v==='SEMANAL'?'block':'none';
 }
 function calcTandaInfo(){
   const total=parseInt(id('tan-total')&&id('tan-total').value)||0;
   const num=parseInt(id('tan-num')&&id('tan-num').value)||0;
-  const pg=parseFloat(id('deu-pg')&&id('deu-pg').value)||0;
+  const pg=parseFloat((id('deu-pg-tan')&&id('deu-pg-tan').value)||(id('deu-pg')&&id('deu-pg').value))||0;
   const box=id('deu-info');
   if(!total||!num||!pg){if(box)box.style.display='none';return;}
   const totalPagar=(total-1)*pg;
   if(box){box.style.display='block';box.className='obox';
-    box.innerHTML='Pagas '+(total-1)+' numeros x '+mxn(pg)+' = <strong>'+mxn(totalPagar)+'</strong> &middot; Premio cuando te toque: <strong>+'+mxn(totalPagar)+'</strong>';}
+    box.innerHTML='Pagas '+(total-1)+' números × '+mxn(pg)+' = <strong>'+mxn(totalPagar)+'</strong> &middot; Premio cuando te toque: <strong>+'+mxn(totalPagar)+'</strong>';}
 }
 function toggleDeuPrev(){ id('deu-prev-b').style.display=id('deu-prev').value==='si'?'block':'none'; }
 function calcDeuInfo(){
@@ -2241,10 +2246,13 @@ function guardarDeu(){
     const nombre=(id('tan-nombre')&&id('tan-nombre').value.trim())||'';
     const tanTotal=parseInt(id('tan-total')&&id('tan-total').value)||0;
     const tanNum=parseInt(id('tan-num')&&id('tan-num').value)||0;
-    if(!nombre||!tanTotal||!tanNum||!pg){alert('Completa todos los campos de la tanda');return;}
-    if(!ini){alert('La fecha de inicio de la tanda es requerida');return;}
-    if(tanNum>tanTotal){alert('Tu numero no puede ser mayor al total');return;}
-    const deu={concepto:nombre,monto:0,plazo:tanTotal,pago:pg,freq,ini,adq,fechaAgregado,esTanda:true,tandaNum:tanNum,tandaTotal:tanTotal};
+    const pgTan=parseFloat(id('deu-pg-tan')&&id('deu-pg-tan').value)||0;
+    const freqTan=(id('deu-freq-tan')&&id('deu-freq-tan').value)||'SEMANAL';
+    const iniTan=(id('deu-ini')&&id('deu-ini').value)||'';
+    if(!nombre||!tanTotal||!tanNum||!pgTan){alert('Completa todos los campos de la tanda');return;}
+    if(!iniTan){alert('La fecha de inicio de la tanda es requerida');return;}
+    if(tanNum>tanTotal){alert('Tu n\u00famero no puede ser mayor al total');return;}
+    const deu={concepto:nombre,monto:0,plazo:tanTotal,pago:pgTan,freq:freqTan,ini:iniTan,adq:'',fechaAgregado,esTanda:true,tandaNum:tanNum,tandaTotal:tanTotal};
     S.deudas.push(deu); saveDeuDB(deu).catch(console.warn); save();
   } else {
     const c=id('deu-c').value.trim(), m=parseFloat(id('deu-m').value)||0, pl=parseInt(id('deu-pl').value)||0;
@@ -2253,7 +2261,7 @@ function guardarDeu(){
     const deu={concepto:c,monto:m,plazo:pl,pago:pg,freq,ini,adq,fechaAgregado};
     S.deudas.push(deu); saveDeuDB(deu).catch(console.warn); save();
   }
-  ['deu-c','deu-m','deu-pl','deu-pg','tan-nombre','tan-total','tan-num'].forEach(fid=>{const el=id(fid);if(el)el.value='';});
+  ['deu-c','deu-m','deu-pl','deu-pg','deu-pg-tan','tan-nombre','tan-total','tan-num'].forEach(fid=>{const el=id(fid);if(el)el.value='';});
   if(id('deu-tipo'))id('deu-tipo').value='normal';
   setDeuTipo();
   if(id('deu-fnote'))id('deu-fnote').style.display='none';

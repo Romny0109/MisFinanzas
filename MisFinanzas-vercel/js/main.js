@@ -1876,28 +1876,39 @@ function guardarConfig(){
 // SERVICIOS
 function onSvcFreqChange(){
   const n = parseInt(id('svc-n').value)||1;
-  // Mensual no necesita fecha porque siempre es el próximo mes
+  // Mensual: solo día de pago. Bimestral+: solo fecha del próximo pago
+  id('svc-dia-wrap').style.display = n === 1 ? 'block' : 'none';
   id('svc-prox-wrap').style.display = n > 1 ? 'block' : 'none';
-  if(n <= 1) id('svc-prox').value = '';
+  if(n === 1) id('svc-prox').value = '';
+  if(n > 1) id('svc-dia').value = '';
 }
 
-function guardarSvc(){
+async function guardarSvc(){
   const c=id('svc-c').value.trim(), m=parseFloat(id('svc-m').value)||0;
   const n=parseInt(id('svc-n').value)||1;
-  const dia=parseInt(id('svc-dia').value)||1;
   const proxPago=id('svc-prox').value||'';
   if(!c||!m){alert('Concepto y monto son requeridos');return;}
-  if(!dia||dia<1||dia>31){alert('Día de pago requerido (1-31)');return;}
-  if(n>1 && !proxPago){alert('Indica la fecha del próximo pago');return;}
+  
+  let dia;
+  if(n === 1){
+    // Mensual: usa el campo de día
+    dia=parseInt(id('svc-dia').value)||0;
+    if(!dia||dia<1||dia>31){alert('Día de pago requerido (1-31)');return;}
+  } else {
+    // Bimestral+: saca el día de la fecha del calendario
+    if(!proxPago){alert('Indica la fecha del próximo pago');return;}
+    const proxDate = new Date(proxPago+'T12:00:00');
+    dia = proxDate.getDate();
+  }
+  
   const hoy = new Date(); hoy.setHours(0,0,0,0);
-  // fechaAgregado siempre es hoy — es el punto real desde donde se empieza a contar
   const fechaAgregado = hoy.toISOString().split('T')[0];
   const svc={concepto:c, monto:m, cadacuanto:n, diaPago:dia, fechaAgregado, proxPago};
   S.servicios.push(svc);
-  saveSvc(svc).catch(console.warn);
+  await saveSvc(svc);
   save();
   id('svc-c').value=''; id('svc-m').value=''; id('svc-n').value='1'; id('svc-dia').value='';
-  id('svc-prox').value=''; id('svc-prox-wrap').style.display='none';
+  id('svc-prox').value=''; id('svc-prox-wrap').style.display='none'; id('svc-dia-wrap').style.display='block';
   closeModal('m-svc'); window.renderSvc(); renderPrincipal();
 }
 async function delSvc(i){

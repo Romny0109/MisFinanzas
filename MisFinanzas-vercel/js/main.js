@@ -2152,7 +2152,9 @@ function delTar(i){
 
 // DEUDAS
 function checkDeuFecha(){
-  const v=id('deu-ini').value;
+  const tipo=id('deu-tipo')?id('deu-tipo').value:'normal';
+  const iniEl = tipo==='tanda' ? id('deu-ini-tanda') : id('deu-ini');
+  const v = iniEl ? iniEl.value : '';
   const freq=(id('deu-freq')&&id('deu-freq').value)||'MENSUAL';
   const pl=parseInt((id('deu-pl')&&id('deu-pl').value)||60);
   const box=id('deu-fnote'); if(!box) return;
@@ -2239,8 +2241,13 @@ function calcDeuSaldo(){
 function guardarDeu(){
   const tipo=id('deu-tipo')?id('deu-tipo').value:'normal';
   const freq=id('deu-freq').value;
-  const ini=id('deu-ini').value, adq=(id('deu-adq')&&id('deu-adq').value)||'';
+  const adq=(id('deu-adq')&&id('deu-adq').value)||'';
   const pg=parseFloat(id('deu-pg').value)||0;
+  // ini depende del tipo: tanda usa deu-ini, normal usa deu-ini-normal
+  // deu-ini = normal debt date, deu-ini-tanda = tanda date
+  const ini = tipo==='tanda'
+    ? ((id('deu-ini-tanda')&&id('deu-ini-tanda').value)||'')
+    : ((id('deu-ini')&&id('deu-ini').value)||'');
 
   if(tipo==='tanda'){
     const nombre=(id('tan-nombre')&&id('tan-nombre').value.trim())||'';
@@ -2248,7 +2255,7 @@ function guardarDeu(){
     const tanNum=parseInt(id('tan-num')&&id('tan-num').value)||0;
     const pgTan=parseFloat(id('deu-pg-tan')&&id('deu-pg-tan').value)||0;
     const freqTan=(id('deu-freq-tan')&&id('deu-freq-tan').value)||'SEMANAL';
-    const iniTan=(id('deu-ini')&&id('deu-ini').value)||'';
+    const iniTan=(id('deu-ini-tanda')&&id('deu-ini-tanda').value)||'';
     if(!nombre||!tanTotal||!tanNum||!pgTan){alert('Completa todos los campos de la tanda');return;}
     if(!iniTan){alert('La fecha de inicio de la tanda es requerida');return;}
     if(tanNum>tanTotal){alert('Tu n\u00famero no puede ser mayor al total');return;}
@@ -2263,7 +2270,7 @@ function guardarDeu(){
     const deu={concepto:c,monto:m,plazo:pl,pago:pg,freq,ini,adq,fechaAgregado:fechaAgregadoDeu};
     S.deudas.push(deu); saveDeuDB(deu).catch(console.warn); save();
   }
-  ['deu-c','deu-m','deu-pl','deu-pg','deu-pg-tan','tan-nombre','tan-total','tan-num'].forEach(fid=>{const el=id(fid);if(el)el.value='';});
+  ['deu-c','deu-m','deu-pl','deu-pg','deu-pg-tan','tan-nombre','tan-total','tan-num','deu-ini','deu-ini-tanda','deu-adq'].forEach(fid=>{const el=id(fid);if(el)el.value='';});
   if(id('deu-tipo'))id('deu-tipo').value='normal';
   setDeuTipo();
   if(id('deu-fnote'))id('deu-fnote').style.display='none';

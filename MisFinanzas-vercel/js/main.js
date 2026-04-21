@@ -1407,21 +1407,23 @@ function freqLabel(n){
 }
 function calcProxPagoSvc(s){
   if(!s.diaPago) return '';
-  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  // Usar el fin del periodo que estamos viendo como referencia
+  const p = PERIODOS[S.periodoIdx];
+  const ref = p ? new Date(p.fin) : new Date();
+  ref.setHours(0,0,0,0);
   const dia = s.diaPago;
   const cadaMeses = s.cadacuanto || 1;
   if(cadaMeses === 1){
-    // Mensual: próximo día X (este mes si no ha pasado, si no el siguiente)
-    let prox = new Date(hoy.getFullYear(), hoy.getMonth(), dia);
-    if(prox <= hoy) prox = new Date(hoy.getFullYear(), hoy.getMonth()+1, dia);
+    // Mensual: próximo día X después del fin del periodo actual
+    let prox = new Date(ref.getFullYear(), ref.getMonth(), dia);
+    if(prox <= ref) prox = new Date(ref.getFullYear(), ref.getMonth()+1, dia);
     const maxD = new Date(prox.getFullYear(), prox.getMonth()+1, 0).getDate();
     if(dia > maxD) prox.setDate(maxD);
     return prox.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'});
   } else {
-    // Bimestral+: si tiene proxPago guardado, usarlo; si ya pasó, sumar cadaMeses
     if(s.proxPago){
       let prox = new Date(s.proxPago+'T12:00:00'); prox.setHours(0,0,0,0);
-      while(prox <= hoy){
+      while(prox <= ref){
         prox = new Date(prox.getFullYear(), prox.getMonth()+cadaMeses, prox.getDate());
       }
       return prox.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'});
@@ -2377,14 +2379,14 @@ document.addEventListener('click', function(e){
 
   if(!action) return;
 
-  if(action==='del-svc'){S.servicios.splice(idx,1);save();renderSvc();renderPrincipal();}
-  else if(action==='del-ext'){S.extras.splice(idx,1);save();renderExt();renderPrincipal();renderAhorroConfig();}
-  else if(action==='del-mov'){S.movimientos.splice(idx,1);save();renderTDC();renderPrincipal();}
-  else if(action==='del-msi'){S.msis.splice(idx,1);save();renderTDC();renderPrincipal();}
+  if(action==='del-svc'){const s=S.servicios[idx];if(s&&s.id)supa.from('servicios').delete().eq('id',s.id).catch(console.warn);S.servicios.splice(idx,1);save();renderSvc();renderPrincipal();}
+  else if(action==='del-ext'){const e=S.extras[idx];if(e&&e.id)supa.from('extras').delete().eq('id',e.id).catch(console.warn);S.extras.splice(idx,1);save();renderExt();renderPrincipal();renderAhorroConfig();}
+  else if(action==='del-mov'){const m=S.movimientos[idx];if(m&&m.id)supa.from('movimientos').delete().eq('id',m.id).catch(console.warn);S.movimientos.splice(idx,1);save();renderTDC();renderPrincipal();}
+  else if(action==='del-msi'){const m=S.msis[idx];if(m&&m.id)supa.from('msis').delete().eq('id',m.id).catch(console.warn);S.msis.splice(idx,1);save();renderTDC();renderPrincipal();}
   else if(action==='del-tar'){ delTar(idx); }
-  else if(action==='del-deu'){if(confirm('¿Eliminar esta deuda?')){S.deudas.splice(idx,1);save();renderDeu();renderPrincipal();}}
-  else if(action==='tog-mov'){S.movimientos[idx].incluir=S.movimientos[idx].incluir==='SI'?'NO':'SI';save();renderTDC();renderPrincipal();}
-  else if(action==='tog-msi'){S.msis[idx].incluir=S.msis[idx].incluir==='SI'?'NO':'SI';save();renderTDC();renderPrincipal();}
+  else if(action==='del-deu'){if(confirm('¿Eliminar esta deuda?')){const d=S.deudas[idx];if(d&&d.id)supa.from('deudas').delete().eq('id',d.id).catch(console.warn);S.deudas.splice(idx,1);save();renderDeu();renderPrincipal();}}
+  else if(action==='tog-mov'){S.movimientos[idx].incluir=S.movimientos[idx].incluir==='SI'?'NO':'SI';if(S.movimientos[idx].id)supa.from('movimientos').update({incluir:S.movimientos[idx].incluir}).eq('id',S.movimientos[idx].id).catch(console.warn);save();renderTDC();renderPrincipal();}
+  else if(action==='tog-msi'){S.msis[idx].incluir=S.msis[idx].incluir==='SI'?'NO':'SI';if(S.msis[idx].id)supa.from('msis').update({incluir:S.msis[idx].incluir}).eq('id',S.msis[idx].id).catch(console.warn);save();renderTDC();renderPrincipal();}
 });
 
 // Override old inline-onclick render functions to use data-action instead

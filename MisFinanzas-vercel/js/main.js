@@ -2379,14 +2379,54 @@ document.addEventListener('click', function(e){
 
   if(!action) return;
 
-  if(action==='del-svc'){const s=S.servicios[idx];if(s&&s.id)supa.from('servicios').delete().eq('id',s.id).catch(console.warn);S.servicios.splice(idx,1);save();renderSvc();renderPrincipal();}
-  else if(action==='del-ext'){const e=S.extras[idx];if(e&&e.id)supa.from('extras').delete().eq('id',e.id).catch(console.warn);S.extras.splice(idx,1);save();renderExt();renderPrincipal();renderAhorroConfig();}
-  else if(action==='del-mov'){const m=S.movimientos[idx];if(m&&m.id)supa.from('movimientos').delete().eq('id',m.id).catch(console.warn);S.movimientos.splice(idx,1);save();renderTDC();renderPrincipal();}
-  else if(action==='del-msi'){const m=S.msis[idx];if(m&&m.id)supa.from('msis').delete().eq('id',m.id).catch(console.warn);S.msis.splice(idx,1);save();renderTDC();renderPrincipal();}
+  if(action==='del-svc'){
+    const item=S.servicios[idx];
+    if(item&&item.id) supa.from('servicios').delete().eq('id',item.id).catch(console.warn);
+    S.servicios.splice(idx,1);
+    localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+    window.renderSvc();renderPrincipal();
+  }
+  else if(action==='del-ext'){
+    const item=S.extras[idx];
+    if(item&&item.id) supa.from('extras').delete().eq('id',item.id).catch(console.warn);
+    S.extras.splice(idx,1);
+    localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+    window.renderExt();renderPrincipal();renderAhorroConfig();
+  }
+  else if(action==='del-mov'){
+    const item=S.movimientos[idx];
+    if(item&&item.id) supa.from('movimientos').delete().eq('id',item.id).catch(console.warn);
+    S.movimientos.splice(idx,1);
+    localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+    renderTDC();renderPrincipal();
+  }
+  else if(action==='del-msi'){
+    const item=S.msis[idx];
+    if(item&&item.id) supa.from('msis').delete().eq('id',item.id).catch(console.warn);
+    S.msis.splice(idx,1);
+    localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+    renderTDC();renderPrincipal();
+  }
   else if(action==='del-tar'){ delTar(idx); }
-  else if(action==='del-deu'){if(confirm('¿Eliminar esta deuda?')){const d=S.deudas[idx];if(d&&d.id)supa.from('deudas').delete().eq('id',d.id).catch(console.warn);S.deudas.splice(idx,1);save();renderDeu();renderPrincipal();}}
-  else if(action==='tog-mov'){S.movimientos[idx].incluir=S.movimientos[idx].incluir==='SI'?'NO':'SI';if(S.movimientos[idx].id)supa.from('movimientos').update({incluir:S.movimientos[idx].incluir}).eq('id',S.movimientos[idx].id).catch(console.warn);save();renderTDC();renderPrincipal();}
-  else if(action==='tog-msi'){S.msis[idx].incluir=S.msis[idx].incluir==='SI'?'NO':'SI';if(S.msis[idx].id)supa.from('msis').update({incluir:S.msis[idx].incluir}).eq('id',S.msis[idx].id).catch(console.warn);save();renderTDC();renderPrincipal();}
+  else if(action==='del-deu'){
+    if(confirm('¿Eliminar esta deuda?')){
+      const item=S.deudas[idx];
+      if(item&&item.id) supa.from('deudas').delete().eq('id',item.id).catch(console.warn);
+      S.deudas.splice(idx,1);
+      localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+      renderDeu();renderPrincipal();
+    }
+  }
+  else if(action==='tog-mov'){
+    S.movimientos[idx].incluir=S.movimientos[idx].incluir==='SI'?'NO':'SI';
+    if(S.movimientos[idx].id) supa.from('movimientos').update({incluir:S.movimientos[idx].incluir}).eq('id',S.movimientos[idx].id).catch(console.warn);
+    save();renderTDC();renderPrincipal();
+  }
+  else if(action==='tog-msi'){
+    S.msis[idx].incluir=S.msis[idx].incluir==='SI'?'NO':'SI';
+    if(S.msis[idx].id) supa.from('msis').update({incluir:S.msis[idx].incluir}).eq('id',S.msis[idx].id).catch(console.warn);
+    save();renderTDC();renderPrincipal();
+  }
 });
 
 // Override old inline-onclick render functions to use data-action instead

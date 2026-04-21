@@ -1906,25 +1906,38 @@ function guardarSvc(){
   id('svc-prox').value=''; id('svc-prox-wrap').style.display='none';
   closeModal('m-svc'); window.renderSvc(); renderPrincipal();
 }
-function delSvc(i){
+async function delSvc(i){
   if(confirm('¿Eliminar este servicio?')){
     const svc=S.servicios[i];
-    if(svc.id){
-      delSvcDB(svc.id).catch(console.warn);
-    } else {
-      // Sin id local — borrar por concepto+monto para este usuario
-      supa.from('servicios').delete()
-        .eq('user_id', UID).eq('concepto', svc.concepto).eq('monto', svc.monto)
-        .catch(console.warn);
-    }
-    S.servicios.splice(i,1); save(); window.renderSvc(); renderPrincipal();
+    try {
+      if(svc.id){
+        await supa.from('servicios').delete().eq('id', svc.id);
+      } else {
+        await supa.from('servicios').delete()
+          .eq('user_id', UID).eq('concepto', svc.concepto).eq('monto', svc.monto);
+      }
+    } catch(e){ console.error('delSvc:', e); }
+    S.servicios.splice(i,1);
+    localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+    save(); window.renderSvc(); renderPrincipal();
   }
 }
-function limpiarServicios(){
+async function limpiarServicios(){
   if(confirm('¿Eliminar todos los servicios?')){
-    // Borrar TODO de Supabase para este usuario
-    supa.from('servicios').delete().eq('user_id', UID).catch(console.warn);
-    S.servicios=[]; save(); window.renderSvc(); renderPrincipal();
+    try {
+      const {error} = await supa.from('servicios').delete().eq('user_id', UID);
+      if(error){
+        alert('Error borrando de Supabase: ' + error.message);
+        return;
+      }
+    } catch(e){
+      alert('Error: ' + e.message);
+      return;
+    }
+    S.servicios=[];
+    localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+    window.renderSvc(); renderPrincipal();
+    alert('Servicios borrados correctamente');
   }
 }
 

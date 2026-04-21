@@ -747,27 +747,16 @@
     <div class="ibox" id="deu-fnote" style="display:none">—</div>
     <div class="frow">
       <div class="fg"><div class="fl">Frecuencia</div>
-        <select class="fi" id="deu-freq" onchange="setDeuFreq()">
+        <select class="fi" id="deu-freq" onchange="setDeuFreq();checkDeuFecha()">
           <option>MENSUAL</option><option>QUINCENAL</option><option>SEMANAL</option>
         </select>
       </div>
-      <div class="fg" id="deu-dia-n-w"><div class="fl">Día de pago</div><input class="fi" type="number" id="deu-dia" placeholder="1" inputmode="decimal"></div>
       <div class="fg" id="deu-dia-s-w" style="display:none"><div class="fl">Día semana</div>
         <select class="fi" id="deu-dias"><option>Lunes</option><option>Martes</option><option>Miércoles</option><option>Jueves</option><option selected>Viernes</option><option>Sábado</option><option>Domingo</option></select>
       </div>
     </div>
-    <div class="frow"><div class="fg"><div class="fl">Pago real por periodo con intereses $</div><input class="fi" type="number" id="deu-pg" inputmode="decimal" oninput="calcDeuInfo()"></div></div>
+    <div class="frow"><div class="fg"><div class="fl">Pago mensual con intereses $</div><input class="fi" type="number" id="deu-pg" inputmode="decimal" oninput="calcDeuInfo()"></div></div>
     <div class="ibox" id="deu-info" style="display:none">—</div>
-    <div class="frow"><div class="fg"><div class="fl">¿Ya tiene pagos hechos?</div>
-      <select class="fi" id="deu-prev" onchange="toggleDeuPrev()"><option value="no">No, es nueva</option><option value="si">Sí, ya pagué algunos</option></select>
-    </div></div>
-    <div id="deu-prev-b" style="display:none">
-      <div class="frow">
-        <div class="fg"><div class="fl">Pagos realizados</div><input class="fi" type="number" id="deu-np" inputmode="decimal" oninput="calcDeuSaldo()"></div>
-        <div class="fg"><div class="fl">Saldo pendiente $</div><input class="fi" type="number" id="deu-sl" inputmode="decimal" placeholder="Auto"></div>
-      </div>
-      <div class="obox" id="deu-saldo-info" style="display:none">—</div>
-    </div>
     <div class="m-footer">
       <button class="btn btn-g" style="flex:1" onclick="closeModal('m-deu')">Cancelar</button>
       <button class="btn btn-p" style="flex:2" onclick="guardarDeu()">Registrar deuda</button>

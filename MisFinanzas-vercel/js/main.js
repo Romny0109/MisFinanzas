@@ -131,11 +131,9 @@ async function loadFromSupabase(silencioso=false){
     if(data) S.deudas = data.map(r=>({
       id:r.id, concepto:r.concepto, monto:parseFloat(r.monto)||0,
       plazo:r.plazo||12, pago:parseFloat(r.pago)||0,
-      freq:r.freq||'MENSUAL', dia:r.dia||'1',
+      freq:r.freq||'MENSUAL',
       ini:r.ini||'', adq:r.adq||'',
-      pagoActual:r.pago_actual||1,
-      saldoPendiente:parseFloat(r.saldo_pendiente)||0,
-      pagosRestantes:r.pagos_restantes||0
+      fechaAgregado: r.fecha_agregado || r.ini || ''
     }));
   } catch(e){ console.warn('deudas load fail:', e); }
 
@@ -288,11 +286,9 @@ async function saveDeuDB(d){
   try {
     const {data} = await supa.from('deudas').insert({
       user_id: UID, concepto: d.concepto, monto: d.monto,
-      plazo: d.plazo, pago: d.pago, freq: d.freq, dia: d.dia,
+      plazo: d.plazo, pago: d.pago, freq: d.freq,
       ini: d.ini, adq: d.adq||'',
-      pago_actual: d.pagoActual||1,
-      saldo_pendiente: d.saldoPendiente||0,
-      pagos_restantes: d.pagosRestantes||0
+      fecha_agregado: d.fechaAgregado||new Date().toISOString().split('T')[0]
     }).select().single();
     if(data) d.id = data.id;
   } catch(e){ console.warn('saveDeuDB:', e); }
@@ -947,12 +943,8 @@ function calcDeuEnPeriodo(d){
   const fAgre = d.fechaAgregado ? new Date(d.fechaAgregado+'T12:00:00') : new Date(fIni);
   fAgre.setHours(0,0,0,0);
 
-  const pagosRestantes = d.pagosRestantes ?? d.plazo;
-  if(pagosRestantes <= 0) return null;
-
-  // Genera la N-ésima fecha de pago a partir de ini
+  // Genera la N-ésima fecha de pago a partir de ini (n=0 → primer pago = ini)
   function getNthFechaPago(n){
-    // n=0 → ini, n=1 → ini+1freq, etc.
     if(d.freq === 'MENSUAL'){
       const diaPago = fIni.getDate();
       const f = new Date(fIni.getFullYear(), fIni.getMonth()+n, diaPago);
@@ -960,7 +952,6 @@ function calcDeuEnPeriodo(d){
       if(f.getDate() !== diaPago && diaPago <= 31) f.setDate(Math.min(diaPago, maxDia));
       return f;
     } else if(d.freq === 'QUINCENAL'){
-      // Pagos cada 15 días aprox: avanzar n quincenas desde ini
       let y = fIni.getFullYear(), m = fIni.getMonth();
       let half = fIni.getDate() <= 15 ? 1 : 2;
       let count = 0;
@@ -981,34 +972,63 @@ function calcDeuEnPeriodo(d){
     }
   }
 
-  let plazoActual = d.pagoActual || 1;
+  // ── CALCULAR pagoActual AUTOMÁTICAMENTE ──────────────────
+  // Cuenta cuántas fechas de pago han llegado desde ini hasta hoy.
+  // El pagoActual es el número del pago cuya fecha de vencimiento
+  // es hoy o futura más próxima (el pago que se está cursando o próximo).
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  let pagoActual = 1;
+  for(let n = 0; n < d.plazo; n++){
+    const fp = getNthFechaPago(n);
+    fp.setHours(0,0,0,0);
+    if(fp <= hoy){
+      // Esta fecha ya venció → este es como mínimo el pago actual
+      pagoActual = n + 2; // el siguiente es el pendiente
+    } else {
+      break;
+    }
+  }
+  pagoActual = Math.max(1, Math.min(pagoActual, d.plazo));
+
+  // Si ya pasaron todos los pagos → liquidada
+  if(getNthFechaPago(d.plazo - 1) < hoy) return null;
+
+  // ── ITERAR DESDE pagoActual para encontrar el periodo navegado ──
+  let plazoActual = pagoActual;
 
   for(let safety = 0; safety < 500; safety++){
-    const offsetFromStart = plazoActual - (d.pagoActual||1);
-    const limitePago = getNthFechaPago(offsetFromStart);
+    if(plazoActual > d.plazo) return null;
+
+    // limitePago: fecha de vencimiento de este pago (índice base-0 = plazoActual-1)
+    const limitePago = getNthFechaPago(plazoActual - 1);
+    limitePago.setHours(0,0,0,0);
 
     // desdeConteo:
-    // - Primer contabilizado → desde fechaAgregado
-    // - Segundo+ → desde la fecha de pago anterior
+    // - Para el primer pago contabilizado (pagoActual) → desde fechaAgregado
+    // - Para pagos siguientes → desde la fecha del pago anterior
     let desdeConteo;
-    if(offsetFromStart === 0){
+    if(plazoActual === pagoActual){
       desdeConteo = new Date(fAgre);
     } else {
-      desdeConteo = new Date(getNthFechaPago(offsetFromStart - 1));
+      desdeConteo = getNthFechaPago(plazoActual - 2);
     }
     desdeConteo.setHours(0,0,0,0);
 
     const nTotal = Math.max(1, contarDiasCobro(_isoStr(limitePago), _isoStr(desdeConteo)));
 
-    // ¿Todas las quincenas de este plazo caen antes del periodo navegado?
+    // ¿Este plazo ya quedó antes del periodo navegado?
     const pIniMenos1 = new Date(pIni); pIniMenos1.setDate(pIniMenos1.getDate()-1);
     const cobrosAntes = contarDiasCobro(_isoStr(pIniMenos1), _isoStr(desdeConteo));
-
-    // Si 0 quincenas en el rango, el plazo se consume sin mostrarse
     const quincenasEnRango = contarDiasCobro(_isoStr(limitePago), _isoStr(desdeConteo));
+
     if(quincenasEnRango === 0 || cobrosAntes >= nTotal){
       plazoActual++;
-      if(plazoActual > d.plazo) return null;
+      continue;
+    }
+
+    // ¿Este plazo empieza después del periodo navegado?
+    if(limitePago < pIni){
+      plazoActual++;
       continue;
     }
 
@@ -1016,7 +1036,6 @@ function calcDeuEnPeriodo(d){
     const effectiveEnd = pFin < limitePago ? _isoStr(pFin) : _isoStr(limitePago);
     const cobrosHastaFin = contarDiasCobro(effectiveEnd, _isoStr(desdeConteo));
     const quincenaActual = Math.min(nTotal, Math.max(1, cobrosHastaFin));
-
     const pagoQuincena = d.pago / nTotal;
 
     return {
@@ -2118,16 +2137,58 @@ function delTar(i){
 // DEUDAS
 function checkDeuFecha(){
   const v=id('deu-ini').value;
-  const hoy=new Date(); hoy.setHours(0,0,0,0);
-  const f=new Date(v+'T12:00:00'); f.setHours(0,0,0,0);
+  const freq=id('deu-freq').value||'MENSUAL';
+  const pl=parseInt(id('deu-pl').value)||0;
   const box=id('deu-fnote'); box.style.display='block';
-  if(f>hoy){box.className='ibox';box.textContent='Primer pago a futuro — se dividirá en quincenas hasta esa fecha.';}
-  else if(f<hoy){box.className='wbox';box.textContent='— Fecha pasada — activa "Ya tiene pagos" para ingresar cuántos llevas.';}
-  else{box.className='obox';box.textContent='Primer pago hoy — se contabiliza en este periodo.';}
+  if(!v){ box.className='ibox'; box.textContent='Ingresa la fecha del primer pago.'; return; }
+  const hoy=new Date(); hoy.setHours(0,0,0,0);
+  const fIni=new Date(v+'T12:00:00'); fIni.setHours(0,0,0,0);
+
+  if(fIni > hoy){
+    box.className='ibox';
+    box.textContent='Primer pago a futuro — se dividirá en quincenas hasta esa fecha.';
+    return;
+  }
+
+  // Contar cuántos pagos ya han vencido
+  function getNthFecha(n){
+    if(freq==='MENSUAL'){
+      const dia=fIni.getDate();
+      const f=new Date(fIni.getFullYear(), fIni.getMonth()+n, dia);
+      return f;
+    } else if(freq==='QUINCENAL'){
+      let y=fIni.getFullYear(), m=fIni.getMonth();
+      let half=fIni.getDate()<=15?1:2, count=0;
+      for(let i=0;i<200;i++){
+        const finMes=new Date(y,m+1,0).getDate();
+        const f=half===1?new Date(y,m,15):new Date(y,m,finMes);
+        if(f>=fIni){ if(count===n) return f; count++; }
+        half++; if(half>2){half=1;m++;if(m>11){m=0;y++;}}
+      }
+      return fIni;
+    } else {
+      const cursor=new Date(fIni);
+      cursor.setDate(cursor.getDate()+n*7);
+      return cursor;
+    }
+  }
+
+  let pagosVencidos=0;
+  for(let n=0; n<(pl||60); n++){
+    const fp=getNthFecha(n); fp.setHours(0,0,0,0);
+    if(fp<=hoy) pagosVencidos=n+1;
+    else break;
+  }
+
+  if(pagosVencidos===0){
+    box.className='obox'; box.textContent='Primer pago hoy — se contabiliza en este periodo.';
+  } else {
+    box.className='wbox';
+    box.textContent=`Fecha pasada — se detectan automáticamente ${pagosVencidos} pago${pagosVencidos>1?'s':''} ya realizados. No necesitas ingresar nada más.`;
+  }
 }
 function setDeuFreq(){
   const v=id('deu-freq').value;
-  id('deu-dia-n-w').style.display=v==='SEMANAL'?'none':'block';
   id('deu-dia-s-w').style.display=v==='SEMANAL'?'block':'none';
 }
 function toggleDeuPrev(){ id('deu-prev-b').style.display=id('deu-prev').value==='si'?'block':'none'; }
@@ -2151,24 +2212,16 @@ function guardarDeu(){
   const c=id('deu-c').value.trim(), m=parseFloat(id('deu-m').value)||0, pl=parseInt(id('deu-pl').value)||0;
   const pg=parseFloat(id('deu-pg').value)||0, freq=id('deu-freq').value;
   const ini=id('deu-ini').value, adq=id('deu-adq').value;
-  const dia=freq==='SEMANAL'?id('deu-dias').value:id('deu-dia').value;
   if(!c||!m||!pl||!pg){alert('Completa todos los campos requeridos');return;}
   if(!ini){alert('La fecha del primer pago es requerida');return;}
-  const hoy=new Date(); hoy.setHours(0,0,0,0);
-  let pagoActual=1, saldoPendiente=m, pagosRestantes=pl;
-  if(id('deu-prev').value==='si'){
-    pagoActual=parseInt(id('deu-np').value)||1;
-    saldoPendiente=parseFloat(id('deu-sl').value)||m;
-    pagosRestantes=Math.max(0,pl-pagoActual+1);
-  }
-  const fechaAgregado = hoy.toISOString().split('T')[0];
-  const deu={concepto:c,monto:m,plazo:pl,pago:pg,freq,dia,ini,adq,pagoActual,saldoPendiente,pagosRestantes,fechaAgregado};
+  const fechaAgregado = new Date().toISOString().split('T')[0];
+  // El día de pago se extrae directo de la fecha ini
+  const deu={concepto:c, monto:m, plazo:pl, pago:pg, freq, ini, adq, fechaAgregado};
   S.deudas.push(deu);
   saveDeuDB(deu).catch(console.warn);
   save();
   id('deu-c').value=''; id('deu-m').value=''; id('deu-pl').value=''; id('deu-pg').value='';
   id('deu-fnote').style.display='none'; id('deu-info').style.display='none';
-  id('deu-prev-b').style.display='none'; id('deu-prev').value='no';
   closeModal('m-deu'); window.renderDeu(); renderPrincipal();
 }
 function delDeu(i){

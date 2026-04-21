@@ -989,19 +989,20 @@ function calcDeuEnPeriodo(d){
 
   // Auto-calcular pagoActual contando fechas vencidas
   const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const plazoInt = parseInt(d.plazo) || 0;
   let pagoActual = 1;
-  for(let n=0; n<d.plazo; n++){
+  for(let n=0; n<plazoInt; n++){
     const fp = getNthFechaPago(n); fp.setHours(0,0,0,0);
     if(fp <= hoy) pagoActual = n+2; else break;
   }
-  pagoActual = Math.max(1, Math.min(pagoActual, d.plazo));
-  const ultimaFecha = getNthFechaPago(d.plazo-1); ultimaFecha.setHours(0,0,0,0);
+  pagoActual = Math.max(1, Math.min(pagoActual, plazoInt));
+  const ultimaFecha = getNthFechaPago(plazoInt-1); ultimaFecha.setHours(0,0,0,0);
   if(ultimaFecha < hoy) return null;
 
   let plazoActual = pagoActual;
 
   for(let safety=0; safety<500; safety++){
-    if(plazoActual > d.plazo) return null;
+    if(plazoActual > plazoInt) return null;
 
     const limitePago = getNthFechaPago(plazoActual-1); limitePago.setHours(0,0,0,0);
 

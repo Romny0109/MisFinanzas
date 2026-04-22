@@ -730,36 +730,70 @@
   </div>
 </div>
 
-<!-- Deuda -->
+<!-- Deuda / Tanda -->
 <div class="overlay" id="m-deu">
   <div class="modal">
     <div class="m-handle"></div>
-    <div class="m-title">Nueva deuda</div>
-    <div class="frow"><div class="fg"><div class="fl">Concepto</div><input class="fi" id="deu-c" placeholder="Ej: Préstamo personal"></div></div>
+    <div class="m-title" id="m-deu-title">Nueva deuda</div>
+
+    <!-- Selector tipo -->
     <div class="frow">
-      <div class="fg"><div class="fl">Monto total $</div><input class="fi" type="number" id="deu-m" inputmode="decimal"></div>
-      <div class="fg"><div class="fl">Plazo (pagos)</div><input class="fi" type="number" id="deu-pl" max="60" inputmode="decimal"></div>
-    </div>
-    <div class="frow">
-      <div class="fg"><div class="fl">Fecha adquisición</div><input class="fi" type="date" id="deu-adq"></div>
-      <div class="fg"><div class="fl">Fecha 1er pago</div><input class="fi" type="date" id="deu-ini" oninput="checkDeuFecha()"></div>
-    </div>
-    <div class="ibox" id="deu-fnote" style="display:none">—</div>
-    <div class="frow">
-      <div class="fg"><div class="fl">Frecuencia</div>
-        <select class="fi" id="deu-freq" onchange="setDeuFreq();checkDeuFecha()">
-          <option>MENSUAL</option><option>QUINCENAL</option><option>SEMANAL</option>
+      <div class="fg"><div class="fl">Tipo</div>
+        <select class="fi" id="deu-tipo" onchange="setDeuTipo()">
+          <option value="normal">Deuda normal</option>
+          <option value="tanda">Tanda</option>
         </select>
       </div>
-      <div class="fg" id="deu-dia-s-w" style="display:none"><div class="fl">Día semana</div>
-        <select class="fi" id="deu-dias"><option>Lunes</option><option>Martes</option><option>Miércoles</option><option>Jueves</option><option selected>Viernes</option><option>Sábado</option><option>Domingo</option></select>
-      </div>
     </div>
-    <div class="frow"><div class="fg"><div class="fl">Pago mensual con intereses $</div><input class="fi" type="number" id="deu-pg" inputmode="decimal" oninput="calcDeuInfo()"></div></div>
-    <div class="ibox" id="deu-info" style="display:none">—</div>
+
+    <!-- ═══ CAMPOS DEUDA NORMAL ═══ -->
+    <div id="deu-campos-normal">
+      <div class="frow"><div class="fg"><div class="fl">Concepto</div><input class="fi" id="deu-c" placeholder="Ej: Préstamo personal"></div></div>
+      <div class="frow">
+        <div class="fg"><div class="fl">Monto total $</div><input class="fi" type="number" id="deu-m" inputmode="decimal"></div>
+        <div class="fg"><div class="fl">Plazo (pagos)</div><input class="fi" type="number" id="deu-pl" max="60" inputmode="decimal"></div>
+      </div>
+      <div class="frow">
+        <div class="fg"><div class="fl">Fecha adquisición</div><input class="fi" type="date" id="deu-adq"></div>
+        <div class="fg"><div class="fl">Fecha 1er pago</div><input class="fi" type="date" id="deu-ini" oninput="checkDeuFecha()"></div>
+      </div>
+      <div class="ibox" id="deu-fnote" style="display:none">—</div>
+      <div class="frow">
+        <div class="fg"><div class="fl">Frecuencia</div>
+          <select class="fi" id="deu-freq" onchange="setDeuFreq();checkDeuFecha()">
+            <option>MENSUAL</option><option>QUINCENAL</option><option>SEMANAL</option>
+          </select>
+        </div>
+        <div class="fg" id="deu-dia-s-w" style="display:none"><div class="fl">Día semana</div>
+          <select class="fi" id="deu-dias"><option>Lunes</option><option>Martes</option><option>Miércoles</option><option>Jueves</option><option selected>Viernes</option><option>Sábado</option><option>Domingo</option></select>
+        </div>
+      </div>
+      <div class="frow"><div class="fg"><div class="fl">Pago mensual con intereses $</div><input class="fi" type="number" id="deu-pg" inputmode="decimal" oninput="calcDeuInfo()"></div></div>
+      <div class="ibox" id="deu-info" style="display:none">—</div>
+    </div>
+
+    <!-- ═══ CAMPOS TANDA ═══ -->
+    <div id="deu-campos-tanda" style="display:none">
+      <div class="frow"><div class="fg"><div class="fl">Nombre de la tanda</div><input class="fi" id="tan-nombre" placeholder="Ej: Tanda del trabajo"></div></div>
+      <div class="frow">
+        <div class="fg"><div class="fl">Frecuencia</div>
+          <select class="fi" id="tan-freq">
+            <option value="SEMANAL">SEMANAL</option>
+          </select>
+        </div>
+        <div class="fg"><div class="fl">Monto de pago $</div><input class="fi" type="number" id="tan-pago" inputmode="decimal" oninput="calcTandaInfo()"></div>
+      </div>
+      <div class="frow">
+        <div class="fg"><div class="fl">Cantidad de números</div><input class="fi" type="number" id="tan-nums" inputmode="decimal" oninput="calcTandaInfo()"></div>
+        <div class="fg"><div class="fl">Número asignado</div><input class="fi" type="number" id="tan-asignado" inputmode="decimal" oninput="calcTandaInfo()"></div>
+      </div>
+      <div class="frow"><div class="fg"><div class="fl">Fecha de inicio (Nº 1)</div><input class="fi" type="date" id="tan-ini" oninput="calcTandaInfo()"></div></div>
+      <div class="ibox" id="tan-info" style="display:none">—</div>
+    </div>
+
     <div class="m-footer">
       <button class="btn btn-g" style="flex:1" onclick="closeModal('m-deu')">Cancelar</button>
-      <button class="btn btn-p" style="flex:2" onclick="guardarDeu()">Registrar deuda</button>
+      <button class="btn btn-p" style="flex:2" id="deu-btn-save" onclick="guardarDeu()">Registrar deuda</button>
     </div>
   </div>
 </div>

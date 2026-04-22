@@ -133,7 +133,10 @@ async function loadFromSupabase(silencioso=false){
       plazo:r.plazo||12, pago:parseFloat(r.pago)||0,
       freq:r.freq||'MENSUAL',
       ini:r.ini||'', adq:r.adq||'',
-      fechaAgregado: r.fecha_agregado || r.ini || ''
+      fechaAgregado: r.fecha_agregado || r.ini || '',
+      // Campos tanda (opcionales)
+      tipo: r.tipo || 'normal',
+      numAsignado: r.num_asignado || null
     }));
   } catch(e){ console.warn('deudas load fail:', e); }
 
@@ -288,7 +291,9 @@ async function saveDeuDB(d){
       user_id: UID, concepto: d.concepto, monto: d.monto,
       plazo: d.plazo, pago: d.pago, freq: d.freq,
       ini: d.ini, adq: d.adq||'',
-      fecha_agregado: d.fechaAgregado||new Date().toISOString().split('T')[0]
+      fecha_agregado: d.fechaAgregado||new Date().toISOString().split('T')[0],
+      tipo: d.tipo||'normal',
+      num_asignado: d.numAsignado||null
     }).select().single();
     if(data) d.id = data.id;
   } catch(e){ console.warn('saveDeuDB:', e); }
@@ -1202,6 +1207,11 @@ function calcTotalTDCConMSI(){ return calcTotalMov()+calcTotalMsi() }
 
 function calcTotalDeu(){
   return S.deudas.reduce((a,d)=>{
+    if(d.tipo==='tanda'){
+      const ct = calcTandaEnPeriodo(d);
+      if(!ct) return a;
+      return a + ct.pagoPeriodo;
+    }
     const calc = calcDeuEnPeriodo(d);
     if(!calc) return a;
     return a + calc.pagoQuincena;
@@ -2213,6 +2223,13 @@ function calcDeuSaldo(){
   box.textContent=`${n} pagos × ${mxn(pg)} = ${mxn(pg*n)} pagados · Saldo est.: ${mxn(saldo)}`;
 }
 function guardarDeu(){
+  const tipo = (id('deu-tipo')?.value)||'normal';
+
+  if(tipo === 'tanda'){
+    guardarTanda();
+    return;
+  }
+
   const c=id('deu-c').value.trim(), m=parseFloat(id('deu-m').value)||0, pl=parseInt(id('deu-pl').value)||0;
   const pg=parseFloat(id('deu-pg').value)||0, freq=id('deu-freq').value;
   const ini=id('deu-ini').value, adq=id('deu-adq').value;
@@ -2220,7 +2237,7 @@ function guardarDeu(){
   if(!ini){alert('La fecha del primer pago es requerida');return;}
   const fechaAgregado = new Date().toISOString().split('T')[0];
   // El día de pago se extrae directo de la fecha ini
-  const deu={concepto:c, monto:m, plazo:pl, pago:pg, freq, ini, adq, fechaAgregado};
+  const deu={concepto:c, monto:m, plazo:pl, pago:pg, freq, ini, adq, fechaAgregado, tipo:'normal'};
   S.deudas.push(deu);
   saveDeuDB(deu).catch(console.warn);
   save();
@@ -2916,6 +2933,521 @@ async function confirmarDelMsi(i){
     }
   }
 }
+
+
+// ═══════════════════════════════════════════════════════════════
+// ═══ TANDAS ════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+
+// Helper: formato fecha largo "sábado, 30 de mayo de 2026"
+function fmtTandaFecha(d){
+  return d.toLocaleDateString('es-MX',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+}
+
+// Helper: obtiene fecha del número N de la tanda (N base 1). SEMANAL.
+function tandaFechaNum(tanda, n){
+  const base = new Date(tanda.ini+'T12:00:00');
+  base.setHours(0,0,0,0);
+  const f = new Date(base);
+  f.setDate(base.getDate() + (n-1)*7);
+  return f;
+}
+
+// Toggle entre campos de deuda normal y campos de tanda
+function setDeuTipo(){
+  const t = id('deu-tipo').value;
+  const boxNormal = id('deu-campos-normal');
+  const boxTanda  = id('deu-campos-tanda');
+  const title     = id('m-deu-title');
+  const btn       = id('deu-btn-save');
+  if(t==='tanda'){
+    boxNormal.style.display='none';
+    boxTanda.style.display='block';
+    title.textContent='Nueva tanda';
+    btn.textContent='Registrar tanda';
+  } else {
+    boxNormal.style.display='block';
+    boxTanda.style.display='none';
+    title.textContent='Nueva deuda';
+    btn.textContent='Registrar deuda';
+  }
+}
+
+// Preview informativo del formulario de tanda
+function calcTandaInfo(){
+  const pago = parseFloat(id('tan-pago').value)||0;
+  const nums = parseInt(id('tan-nums').value)||0;
+  const asig = parseInt(id('tan-asignado').value)||0;
+  const ini  = id('tan-ini').value;
+  const box  = id('tan-info');
+  if(!pago||!nums||!ini){ box.style.display='none'; return; }
+  const recibe = pago*(nums-1);
+  let info = `Pagos efectivos: <strong>${nums-1}</strong> · Total que recibirás: <strong>${mxn(recibe)}</strong>`;
+  if(asig>=1 && asig<=nums){
+    const fPrem = tandaFechaNum({ini}, asig);
+    info += ` · Premio: <strong>${fmtTandaFecha(fPrem)}</strong>`;
+  }
+  if(asig>nums){
+    info = `<span style="color:var(--red)">El número asignado no puede ser mayor a la cantidad de números.</span>`;
+  }
+  box.style.display='block';
+  box.className='ibox';
+  box.innerHTML=info;
+}
+
+// Guardar tanda
+function guardarTanda(){
+  const nombre = id('tan-nombre').value.trim();
+  const freq   = id('tan-freq').value || 'SEMANAL';
+  const pago   = parseFloat(id('tan-pago').value)||0;
+  const nums   = parseInt(id('tan-nums').value)||0;
+  const asig   = parseInt(id('tan-asignado').value)||0;
+  const ini    = id('tan-ini').value;
+
+  if(!nombre){ alert('Nombre de la tanda requerido'); return; }
+  if(!pago){ alert('Monto de pago requerido'); return; }
+  if(!nums||nums<2){ alert('Cantidad de números debe ser al menos 2'); return; }
+  if(!asig||asig<1||asig>nums){ alert('Número asignado inválido'); return; }
+  if(!ini){ alert('Fecha de inicio requerida'); return; }
+
+  const fechaAgregado = new Date().toISOString().split('T')[0];
+  const tanda = {
+    concepto: nombre,
+    monto: pago*(nums-1),   // premio = aportes de los demás
+    plazo: nums,            // cantidad de números
+    pago,                    // aporte por número
+    freq: 'SEMANAL',
+    ini,                     // fecha del número 1
+    adq: ini,
+    fechaAgregado,
+    tipo: 'tanda',
+    numAsignado: asig
+  };
+  S.deudas.push(tanda);
+  saveDeuDB(tanda).catch(console.warn);
+  save();
+
+  // Limpiar form tanda
+  id('tan-nombre').value=''; id('tan-pago').value='';
+  id('tan-nums').value=''; id('tan-asignado').value=''; id('tan-ini').value='';
+  id('tan-info').style.display='none';
+  id('deu-tipo').value='normal'; setDeuTipo();
+
+  closeModal('m-deu');
+  // Dar tiempo a que saveDeuDB asigne el id antes de sincronizar
+  setTimeout(()=>{
+    syncTandaExtras();
+    window.renderDeu();
+    window.renderExt();
+    renderPrincipal();
+  }, 500);
+}
+
+// Decide si la fecha de un número de tanda pertenece al periodo actual.
+// QUINCENAL: cae dentro de [pIni, pFin]
+// SEMANAL: regla de anticipación. El pago se aparta en el periodo cuyo
+//   fin es estrictamente anterior a la fecha del número, pero dentro de 7 días.
+//   → fechaNum está en (pFin, pFin + 7 días]
+function perteneceAlPeriodoTanda(fechaNum, pIni, pFin){
+  if(S.modo === 'QUINCENAL'){
+    return fechaNum >= pIni && fechaNum <= pFin;
+  } else {
+    const rangoMax = new Date(pFin); rangoMax.setDate(rangoMax.getDate()+7);
+    return fechaNum > pFin && fechaNum <= rangoMax;
+  }
+}
+
+// LÓGICA PRINCIPAL: calcTandaEnPeriodo
+// Retorna:
+//   numerosEnPeriodo: [{num, fecha, esPremio}]
+//   pagoPeriodo: monto a deducir (excluye el número premio)
+//   fechaFin: fecha del último número
+//   hayPremio: boolean
+//   fechaPremio: fecha del número asignado
+//   premioMonto: pago × (plazo-1)
+//   pagoQuincena: alias de pagoPeriodo para compatibilidad con snapshots
+function calcTandaEnPeriodo(d){
+  const p = PERIODOS[S.periodoIdx];
+  if(!p || !d.ini) return null;
+
+  const pIni = new Date(p.ini); pIni.setHours(0,0,0,0);
+  const pFin = new Date(p.fin); pFin.setHours(0,0,0,0);
+
+  const fechaFin = tandaFechaNum(d, d.plazo);
+  fechaFin.setHours(0,0,0,0);
+  const fechaPremio = tandaFechaNum(d, d.numAsignado);
+  fechaPremio.setHours(0,0,0,0);
+
+  // Si la tanda ya terminó completamente antes de este periodo
+  if(fechaFin < pIni && S.modo === 'QUINCENAL') return null;
+  if(S.modo !== 'QUINCENAL'){
+    const finAntic = new Date(fechaFin); finAntic.setDate(finAntic.getDate()-6);
+    if(finAntic < pIni) return null;
+  }
+
+  const numerosEnPeriodo = [];
+  for(let n=1; n<=d.plazo; n++){
+    const fn = tandaFechaNum(d, n);
+    fn.setHours(0,0,0,0);
+    if(perteneceAlPeriodoTanda(fn, pIni, pFin)){
+      numerosEnPeriodo.push({
+        num: n,
+        fecha: fn,
+        esPremio: n === d.numAsignado
+      });
+    }
+  }
+
+  if(numerosEnPeriodo.length === 0) return null;
+
+  const numsAPagar = numerosEnPeriodo.filter(x=>!x.esPremio).length;
+  const pagoPeriodo = numsAPagar * d.pago;
+  const hayPremio = numerosEnPeriodo.some(x=>x.esPremio);
+  const premioMonto = d.pago * (d.plazo - 1);
+
+  return {
+    numerosEnPeriodo,
+    pagoPeriodo,
+    fechaFin,
+    hayPremio,
+    fechaPremio,
+    premioMonto,
+    pagoQuincena: pagoPeriodo
+  };
+}
+
+// Render de la tarjeta de una tanda
+function renderTandaCard(d, i){
+  const calc = calcTandaEnPeriodo(d);
+  const fechaFin = tandaFechaNum(d, d.plazo);
+  const fechaFinStr = fmtTandaFecha(fechaFin);
+  const freqLabel = d.freq === 'SEMANAL' ? 'Semanal' : d.freq;
+
+  // Tanda sin actividad en este periodo
+  if(!calc){
+    const hoy = new Date(); hoy.setHours(0,0,0,0);
+    const finalizada = fechaFin < hoy;
+    if(finalizada){
+      return `<div class="deu" style="opacity:.6">
+        <div class="deu-hdr">
+          <div class="deu-name" style="font-size:15px;font-weight:700;color:var(--text)">🎲 ${d.concepto}</div>
+          <span class="badge a" style="font-size:11px">TANDA · ${freqLabel}</span>
+        </div>
+        <div class="prog"><div class="prog-f" style="width:100%;background:var(--green)"></div></div>
+        <div class="deu-pago-row" style="margin-top:10px">
+          <span style="font-size:13px;color:var(--green);font-weight:700">Tanda finalizada</span>
+          <span class="ch-del" onclick="borrarDeu(${i})">×</span>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-top:6px">Fin de la tanda: ${fechaFinStr}</div>
+      </div>`;
+    }
+    return `<div class="deu" style="opacity:.7">
+      <div class="deu-hdr">
+        <div class="deu-name" style="font-size:15px;font-weight:700;color:var(--text)">🎲 ${d.concepto}</div>
+        <span class="badge a" style="font-size:11px">TANDA · ${freqLabel}</span>
+      </div>
+      <div style="font-size:13px;color:var(--text2);margin:8px 0">Sin números en este periodo</div>
+      <div class="deu-pago-row" style="margin-top:6px">
+        <span style="font-size:11px;color:var(--text2)">Número asignado: <strong style="color:var(--text)">${d.numAsignado}</strong> de ${d.plazo}</span>
+        <span class="ch-del" onclick="borrarDeu(${i})">×</span>
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-top:6px">${freqLabel} · Fin de la tanda: ${fechaFinStr}</div>
+    </div>`;
+  }
+
+  const { numerosEnPeriodo, pagoPeriodo, hayPremio, premioMonto } = calc;
+
+  // Label de números: "1, 2" o "4, 5, ⭐6" si hay premio
+  const numsLabel = numerosEnPeriodo.map(x =>
+    x.esPremio
+      ? `<span style="color:var(--amber);font-weight:800">⭐${x.num}</span>`
+      : `<strong>${x.num}</strong>`
+  ).join(', ');
+
+  const esSoloPremio = numerosEnPeriodo.length === 1 && hayPremio;
+  const ultimoNum = numerosEnPeriodo[numerosEnPeriodo.length-1].num;
+  const pct = Math.round((ultimoNum / d.plazo) * 100);
+
+  let premioMsg = '';
+  if(hayPremio){
+    if(esSoloPremio){
+      premioMsg = `<div style="font-size:13px;color:var(--green);font-weight:700;margin:8px 0 4px">🎉 ¡FELICIDADES, hoy te toca!</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:6px">No realizas ningún pago. Recibes en extras: <strong style="color:var(--green)">+${mxn(premioMonto)}</strong></div>`;
+    } else {
+      premioMsg = `<div style="font-size:13px;color:var(--green);font-weight:700;margin:8px 0 4px">🎉 ¡Felicidades, tanda ${d.numAsignado}: hoy te toca premio!</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:6px">No pagas ese número, solo los anteriores. Recibes en extras: <strong style="color:var(--green)">+${mxn(premioMonto)}</strong></div>`;
+    }
+  }
+
+  return `<div class="deu">
+    <div class="deu-hdr">
+      <div class="deu-name" style="font-size:15px;font-weight:700;color:var(--text)">🎲 ${d.concepto}</div>
+      <span class="badge a" style="font-size:11px">TANDA · ${freqLabel}</span>
+    </div>
+    <div style="font-size:13px;color:var(--text);margin:6px 0 4px">
+      Número de tanda: ${numsLabel} de <strong>${d.plazo}</strong> números disponibles
+    </div>
+    <div class="prog"><div class="prog-f" style="width:${pct}%;background:var(--teal)"></div></div>
+    ${premioMsg}
+    <div class="deu-pago-row" style="margin-top:10px">
+      <span style="font-size:13px;color:var(--text2);font-weight:500">Pago de este periodo:</span>
+      <span style="font-size:15px;font-weight:800;color:${pagoPeriodo>0?'var(--amber)':'var(--green)'};font-family:var(--mono)">${pagoPeriodo>0?'-':''}${mxn(pagoPeriodo)}</span>
+      <span class="ch-del" onclick="borrarDeu(${i})">×</span>
+    </div>
+    <div style="font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+      ${freqLabel} · Número asignado: <strong style="color:var(--text)">${d.numAsignado}</strong>
+      <br>Fin de la tanda: <strong style="color:var(--text)">${fechaFinStr}</strong>
+    </div>
+  </div>`;
+}
+
+// Override final de renderDeu — mezcla deudas normales y tandas
+(function(){
+  window.renderDeu = function(){
+    syncTandaExtras();
+
+    const list = id('deu-list');
+    if(!S.deudas.length){
+      list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin deudas registradas</div>';
+      id('tot-deu').textContent='$0.00'; return;
+    }
+
+    list.innerHTML = S.deudas.map((d,i)=>{
+      if(d.tipo === 'tanda'){
+        return renderTandaCard(d, i);
+      }
+      // Deuda normal: replicamos el markup existente
+      const calc = calcDeuEnPeriodo(d);
+      const totalPagar = d.pago*d.plazo, interes=Math.max(0,totalPagar-(d.monto||0));
+      const tasa = d.monto&&d.plazo?((interes/d.monto)/(d.plazo/(d.freq==='MENSUAL'?12:d.freq==='QUINCENAL'?24:52))*100):0;
+
+      if(!calc){
+        return `<div class="deu" style="opacity:.5">
+          <div class="deu-hdr">
+            <div class="deu-name" style="font-size:15px;font-weight:700;color:var(--text)">${d.concepto}</div>
+            <span class="badge a" style="font-size:11px">${d.freq}${d.dia?' · día '+d.dia:''}</span>
+          </div>
+          <div class="prog"><div class="prog-f" style="width:100%;background:var(--green)"></div></div>
+          <div class="deu-pago-row" style="margin-top:10px">
+            <span style="font-size:13px;color:var(--green);font-weight:700">Liquidada</span>
+            <span class="ch-del" onclick="borrarDeu(${i})">×</span>
+          </div>
+        </div>`;
+      }
+
+      const {plazoActual, nTotal, quincenaActual, pagoQuincena} = calc;
+      const restantes = Math.max(0, d.plazo - plazoActual + 1);
+      const pct = d.plazo>0 ? Math.round(plazoActual/d.plazo*100) : 0;
+      const label = S.modo==='QUINCENAL'?'Quincena':'Semana';
+      const sublbl = `${label} ${quincenaActual} de ${nTotal} · Pago ${plazoActual} de ${d.plazo}`;
+      const pagosYaHechos = Math.max(0, plazoActual - 1);
+      const saldoActual = Math.max(0, totalPagar - pagosYaHechos * d.pago);
+
+      return `<div class="deu">
+        <div class="deu-hdr">
+          <div class="deu-name" style="font-size:15px;font-weight:700;color:var(--text)">${d.concepto}</div>
+          <span class="badge a" style="font-size:11px">${d.freq}</span>
+        </div>
+        <div class="deu-stats" style="margin:6px 0;gap:12px">
+          <div class="deu-stat" style="font-size:13px;color:var(--text2)">Pago <span style="color:var(--text);font-weight:700">${plazoActual}</span> de <span style="color:var(--text);font-weight:700">${d.plazo}</span></div>
+          <div class="deu-stat" style="font-size:13px;color:var(--text2)">Faltan <span style="color:var(--green);font-weight:700">${restantes}</span></div>
+        </div>
+        <div style="font-size:12px;color:var(--teal);font-weight:600;margin-bottom:6px">${sublbl}</div>
+        <div class="prog"><div class="prog-f" style="width:${pct}%;background:var(--green)"></div></div>
+        ${interes>0?`<div class="deu-rates" style="margin-top:8px">
+          <div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Tasa anual</div><div class="rate-v" style="font-size:13px;color:var(--text);font-weight:700">${tasa.toFixed(1)}%</div></div>
+          <div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Interés total</div><div class="rate-v r" style="font-size:13px;font-weight:700">${mxn(interes)}</div></div>
+          <div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Se debe aún</div><div class="rate-v r" style="font-size:13px;font-weight:700;color:var(--amber)">${mxn(saldoActual)}</div></div>
+        </div>`:''}
+        <div class="deu-pago-row" style="margin-top:10px">
+          <span style="font-size:13px;color:var(--text2);font-weight:500">Pago ${d.freq.toLowerCase()}: ${mxn(d.pago)} → este periodo:</span>
+          <span style="font-size:15px;font-weight:800;color:var(--amber);font-family:var(--mono)">-${mxn(pagoQuincena)}</span>
+          <span class="ch-del" onclick="borrarDeu(${i})">×</span>
+        </div>
+      </div>`;
+    }).join('');
+
+    id('tot-deu').textContent='-'+mxn(calcTotalDeu());
+  };
+})();
+
+// Sincronización de extras automáticos (premios de tandas)
+// Inserta un extra en el periodo donde cae el número asignado del usuario.
+// Si la tanda ya no toca premio en este periodo, lo elimina.
+function syncTandaExtras(){
+  if(!S.extras) S.extras = [];
+
+  // Tandas cuyo premio cae en este periodo
+  const tandasConPremio = S.deudas
+    .filter(d => d.tipo === 'tanda' && d.id)
+    .map(d => {
+      const calc = calcTandaEnPeriodo(d);
+      if(!calc || !calc.hayPremio) return null;
+      return { tandaId: d.id, monto: calc.premioMonto, concepto: d.concepto, fecha: calc.fechaPremio };
+    })
+    .filter(Boolean);
+
+  // Eliminar extras autoTanda que ya no corresponden
+  const extrasAEliminar = [];
+  S.extras = S.extras.filter(e => {
+    if(!e.autoTanda) return true;
+    const aun = tandasConPremio.find(t => t.tandaId === e.tandaId);
+    if(!aun){
+      extrasAEliminar.push(e);
+      return false;
+    }
+    return true;
+  });
+  extrasAEliminar.forEach(e => {
+    if(e.id) supa.from('extras').delete().eq('id', e.id).catch(console.warn);
+  });
+
+  // Agregar los extras que falten
+  tandasConPremio.forEach(t => {
+    const ya = S.extras.find(e => e.autoTanda && e.tandaId === t.tandaId);
+    if(ya) return;
+    const fechaStr = t.fecha.toISOString().split('T')[0];
+    const ext = {
+      concepto: `🎲 Tanda: ${t.concepto}`,
+      monto: t.monto,
+      desc: 'Premio de tanda recibido',
+      fecha: fechaStr,
+      autoTanda: true,
+      tandaId: t.tandaId
+    };
+    S.extras.push(ext);
+    supa.from('extras').insert({
+      user_id: UID,
+      concepto: ext.concepto,
+      monto: ext.monto,
+      descripcion: ext.desc,
+      fecha: ext.fecha,
+      periodo_idx: S.periodoIdx,
+      auto_tanda: true,
+      tanda_id: t.tandaId
+    }).select().single()
+      .then(({data}) => { if(data) ext.id = data.id; })
+      .catch(err => console.warn('insert extra tanda:', err));
+  });
+}
+
+// Hooks en borrado de deudas: limpiar extras automáticos asociados
+(function(){
+  window.borrarDeu = async function(i){
+    const item = S.deudas[i];
+    if(!item) return;
+    const esTanda = item.tipo === 'tanda';
+    const msg = esTanda ? '¿Eliminar esta tanda? También se limpiará el premio automático en extras.' : '¿Eliminar esta deuda?';
+    if(!confirm(msg)) return;
+
+    if(esTanda && item.id){
+      const extrasALimpiar = S.extras.filter(e => e.autoTanda && e.tandaId === item.id);
+      for(const e of extrasALimpiar){
+        if(e.id){
+          try { await supa.from('extras').delete().eq('id', e.id); } catch(err){ console.warn(err); }
+        }
+      }
+      S.extras = S.extras.filter(e => !(e.autoTanda && e.tandaId === item.id));
+    }
+
+    if(item.id) await supa.from('deudas').delete().eq('id', item.id);
+    S.deudas.splice(i,1);
+    save();
+    window.renderDeu(); window.renderExt(); renderPrincipal();
+  };
+
+  window.delDeu = function(i){
+    const item = S.deudas[i];
+    if(!item) return;
+    const esTanda = item.tipo === 'tanda';
+    const msg = esTanda ? '¿Eliminar esta tanda? También se limpiará el premio automático en extras.' : '¿Eliminar esta deuda?';
+    if(!confirm(msg)) return;
+
+    if(esTanda && item.id){
+      const extrasALimpiar = S.extras.filter(e => e.autoTanda && e.tandaId === item.id);
+      extrasALimpiar.forEach(e => {
+        if(e.id) supa.from('extras').delete().eq('id', e.id).catch(console.warn);
+      });
+      S.extras = S.extras.filter(e => !(e.autoTanda && e.tandaId === item.id));
+    }
+
+    if(item.id) delDeuDB(item.id).catch(console.warn);
+    S.deudas.splice(i,1);
+    save();
+    window.renderDeu(); window.renderExt(); renderPrincipal();
+  };
+})();
+
+// Override de renderExt: marcar extras autoTanda y bloquear su eliminación manual
+(function(){
+  window.renderExt = function(){
+    const list = id('ext-list');
+    if(!S.extras || !S.extras.length){
+      list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin ingresos extra este periodo</div>';
+      id('tot-ext').textContent='$0.00'; return;
+    }
+    list.innerHTML = S.extras.map((e,i)=>{
+      const auto = !!e.autoTanda;
+      const dotColor = auto ? 'background:var(--teal)' : '';
+      const delBtn = auto
+        ? `<span style="font-size:11px;color:var(--text2);padding:0 6px" title="Automático por tanda — no editable">🔒</span>`
+        : `<span class="ch-del" onclick="borrarExt(${i})" title="Eliminar">×</span>`;
+      return `
+      <div class="ext-item">
+        <div class="ext-dot" style="${dotColor}"></div>
+        <div class="ext-info">
+          <div class="ext-name">${e.concepto}</div>
+          <div class="ext-desc">${e.fecha||''} · ${e.desc||''}${auto?' · auto':''}</div>
+        </div>
+        <div class="ext-right">
+          <div class="ext-a">+${mxn(e.monto)}</div>
+        </div>
+        ${delBtn}
+      </div>`;
+    }).join('');
+    id('tot-ext').textContent = '+'+mxn(calcTotalExtras());
+  };
+})();
+
+// Hook en limpiarDeudas: también limpiar extras automáticos
+(function(){
+  window.limpiarDeudas = function(){
+    if(!confirm('¿Eliminar todas las deudas y tandas? Los premios automáticos en extras también se limpiarán.')) return;
+    const extrasAutos = S.extras.filter(e => e.autoTanda);
+    extrasAutos.forEach(e => {
+      if(e.id) supa.from('extras').delete().eq('id', e.id).catch(console.warn);
+    });
+    S.extras = S.extras.filter(e => !e.autoTanda);
+
+    supa.from('deudas').delete().eq('user_id', UID).catch(console.warn);
+    S.deudas = [];
+    save();
+    window.renderDeu(); window.renderExt(); renderPrincipal();
+  };
+})();
+
+// Patch: recuperar flags autoTanda/tandaId desde DB una vez que UID exista
+(async function patchExtrasLoad(){
+  const waitUID = () => new Promise(r => {
+    const t = setInterval(() => { if(typeof UID !== 'undefined' && UID){ clearInterval(t); r(); } }, 100);
+    setTimeout(() => { clearInterval(t); r(); }, 15000);
+  });
+  await waitUID();
+  if(typeof UID === 'undefined' || !UID) return;
+  try {
+    const {data} = await supa.from('extras').select('*').eq('user_id', UID);
+    if(!data) return;
+    S.extras.forEach(e => {
+      const match = data.find(r => r.id === e.id);
+      if(match){
+        e.autoTanda = !!match.auto_tanda;
+        e.tandaId = match.tanda_id || null;
+      }
+    });
+    if(window.renderExt) window.renderExt();
+    if(window.renderDeu) window.renderDeu();
+  } catch(err){ console.warn('patch extras autoTanda:', err); }
+})();
 
 
 // ═══════════════════════════════════════════════════════

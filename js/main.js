@@ -929,15 +929,182 @@ function quincenasMsiDesdeHoy(tar, fechaCompra, fechaAgregado){
 }
 
 // ═══════════════════════════════════════════════════════
-// calcDeuEnPeriodo — Deudas con lógica tipo MSI
+// calcDeuSemanalOQuincenal — Nueva lógica para SEMANAL y QUINCENAL
 // ═══════════════════════════════════════════════════════
-// Lógica:
-// - La deuda genera fechas de pago: ini, ini+1freq, ini+2freq...
-// - Primer contabilizado: de fechaAgregado a fechaPago[0] (ini). ini PUEDE ser futuro.
-// - Segundo contabilizado en adelante: de fechaPago[N-1] a fechaPago[N]
-// - En cada rango se cuentan quincenas de cobro y se divide el pago.
-// - Si 0 quincenas en un rango, el plazo se consume sin mostrarse.
+function calcDeuSemanalOQuincenal(d){
+  const p = PERIODOS[S.periodoIdx];
+  if(!p || !d.ini) return null;
+  const pIni = new Date(p.ini); pIni.setHours(0,0,0,0);
+  const pFin = new Date(p.fin); pFin.setHours(0,0,0,0);
+  const hoy  = new Date(); hoy.setHours(0,0,0,0);
+
+  const fIni = new Date(d.ini+'T12:00:00'); fIni.setHours(0,0,0,0);
+  const fechasPago = [];
+  if(d.freq === 'SEMANAL'){
+    for(let n=0; n<d.plazo; n++){
+      const f = new Date(fIni);
+      f.setDate(fIni.getDate() + n*7);
+      fechasPago.push(f);
+    }
+  } else { // QUINCENAL
+    let y = fIni.getFullYear(), m = fIni.getMonth();
+    let half = fIni.getDate() <= 15 ? 1 : 2;
+    let count = 0;
+    for(let i=0; i<500 && count<d.plazo; i++){
+      const finMes = new Date(y, m+1, 0).getDate();
+      const f = half === 1 ? new Date(y,m,15) : new Date(y,m,finMes);
+      f.setHours(0,0,0,0);
+      if(f >= fIni){ fechasPago.push(f); count++; }
+      half++; if(half>2){ half=1; m++; if(m>11){m=0;y++;} }
+    }
+  }
+
+  // REQ 1: si el último pago quedó antes del periodo actual, desaparece
+  const ultimoPago = fechasPago[fechasPago.length-1];
+  if(ultimoPago < pIni) return null;
+
+  // ── DEUDA SEMANAL (igual que tanda sin premio) ──
+  if(d.freq === 'SEMANAL'){
+    const plazosEnPeriodo = [];
+    fechasPago.forEach((fp, idx) => {
+      if(perteneceAlPeriodoTanda(fp, pIni, pFin)){
+        plazosEnPeriodo.push({ plazoNum: idx+1, fecha: fp });
+      }
+    });
+    if(plazosEnPeriodo.length === 0) return null;
+
+    const pagoPeriodo = plazosEnPeriodo.length * d.pago;
+    const plazoActual = plazosEnPeriodo[0].plazoNum;
+    const pagosYaHechos = plazoActual - 1;
+    const totalPagar = d.pago * d.plazo;
+    const saldoRestante = Math.max(0, totalPagar - pagosYaHechos * d.pago);
+
+    return {
+      modoRender: 'SEMANAL',
+      plazosEnPeriodo,
+      pagoPeriodo,
+      pagoQuincena: pagoPeriodo,
+      plazoActual,
+      plazoFinalEnPeriodo: plazosEnPeriodo[plazosEnPeriodo.length-1].plazoNum,
+      saldoRestante,
+      totalPagar,
+      fechaFinDeuda: ultimoPago
+    };
+  }
+
+  // ── DEUDA QUINCENAL ──
+  // Sueldo QUINCENAL: 1 pago completo en el periodo que contiene la fecha.
+  if(S.modo === 'QUINCENAL'){
+    let plazoActual = null;
+    for(let i=0; i<fechasPago.length; i++){
+      if(fechasPago[i] >= pIni && fechasPago[i] <= pFin){
+        plazoActual = i+1;
+        break;
+      }
+    }
+    if(plazoActual === null) return null;
+    const pagosYaHechos = plazoActual - 1;
+    const totalPagar = d.pago * d.plazo;
+    const saldoRestante = Math.max(0, totalPagar - pagosYaHechos * d.pago);
+
+    return {
+      modoRender: 'QUINCENAL_SUELDO_Q',
+      pagoPeriodo: d.pago,
+      pagoQuincena: d.pago,
+      plazoActual,
+      semanaEnPlazo: 1,
+      semanasTotalesPlazo: 1,
+      saldoRestante,
+      totalPagar,
+      fechaFinDeuda: ultimoPago,
+      fechaPlazoActual: fechasPago[plazoActual-1]
+    };
+  }
+
+  // Sueldo SEMANAL, deuda QUINCENAL: prorrateo por días de cobro
+  function diasCobroEnRango(inicio, fin){
+    if(inicio > fin) return [];
+    const dias = [];
+    for(let k=0; k<PERIODOS.length; k++){
+      const f = new Date(PERIODOS[k].fin); f.setHours(0,0,0,0);
+      if(f >= inicio && f <= fin) dias.push(f);
+    }
+    return dias;
+  }
+
+  let plazoActivoEnPeriodo = null;
+
+  for(let i=0; i<fechasPago.length; i++){
+    const plazoNum = i+1;
+    const fechaPlazo = fechasPago[i];
+    let inicioSeg;
+    if(i === 0){
+      inicioSeg = new Date(hoy);
+    } else {
+      inicioSeg = new Date(fechasPago[i-1]);
+      inicioSeg.setDate(inicioSeg.getDate()+1);
+    }
+    inicioSeg.setHours(0,0,0,0);
+
+    if(fechaPlazo < pIni) continue;
+    if(inicioSeg > fechaPlazo) continue; // plazo sin ventana → saltar
+
+    const diasCobro = diasCobroEnRango(inicioSeg, fechaPlazo);
+    if(diasCobro.length === 0) continue; // sin días de cobro → saltar
+
+    const enPeriodoActual = diasCobro.some(f => f >= pIni && f <= pFin);
+    if(enPeriodoActual){
+      plazoActivoEnPeriodo = { plazoNum, fechaPlazo, inicioSeg, diasCobro };
+      break;
+    }
+  }
+
+  if(!plazoActivoEnPeriodo) return null;
+
+  const { plazoNum, fechaPlazo, diasCobro } = plazoActivoEnPeriodo;
+  const semanasTotales = diasCobro.length;
+  const idxCobroPeriodoActual = diasCobro.findIndex(f => f >= pIni && f <= pFin);
+  const semanaActual = idxCobroPeriodoActual + 1;
+  const pagoPeriodo = Math.round((d.pago / semanasTotales) * 100) / 100;
+  const pagosYaHechos = plazoNum - 1;
+  const totalPagar = d.pago * d.plazo;
+  const saldoRestante = Math.max(0, totalPagar - pagosYaHechos * d.pago);
+
+  return {
+    modoRender: 'QUINCENAL_SUELDO_S',
+    pagoPeriodo,
+    pagoQuincena: pagoPeriodo,
+    plazoActual: plazoNum,
+    semanaEnPlazo: semanaActual,
+    semanasTotalesPlazo: semanasTotales,
+    saldoRestante,
+    totalPagar,
+    fechaFinDeuda: ultimoPago,
+    fechaPlazoActual: fechaPlazo
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+// calcDeuEnPeriodo — Router: MENSUAL → lógica original; SEM/QUIN → nueva
+// ═══════════════════════════════════════════════════════
 function calcDeuEnPeriodo(d){
+  if(d.freq === 'SEMANAL' || d.freq === 'QUINCENAL'){
+    const r = calcDeuSemanalOQuincenal(d);
+    if(!r) return null;
+    return {
+      pagoQuincena: r.pagoQuincena,
+      pagoActual: r.plazoActual,
+      plazoActual: r.plazoActual,
+      nTotal: r.semanasTotalesPlazo || 1,
+      quincenaActual: r.semanaEnPlazo || 1,
+      _nuevo: r
+    };
+  }
+  return _calcDeuMensualOriginal(d);
+}
+
+// Lógica MENSUAL original (intacta)
+function _calcDeuMensualOriginal(d){
   const p = PERIODOS[S.periodoIdx];
   if(!p) return null;
   const pIni = new Date(p.ini); pIni.setHours(0,0,0,0);
@@ -3123,24 +3290,17 @@ function renderTandaCard(d, i){
   const fechaFinStr = fmtTandaFecha(fechaFin);
   const freqLabel = d.freq === 'SEMANAL' ? 'Semanal' : d.freq;
 
-  // Tanda sin actividad en este periodo
+  // REQ 1: si la tanda ya terminó estrictamente antes del periodo actual,
+  // ocultarla (no mostrar tarjeta)
+  const p = PERIODOS[S.periodoIdx];
+  if(p){
+    const pIni = new Date(p.ini); pIni.setHours(0,0,0,0);
+    const ffin = new Date(fechaFin); ffin.setHours(0,0,0,0);
+    if(ffin < pIni) return '';
+  }
+
+  // Tanda sin actividad en este periodo (pero aún futura o en curso sin números en este periodo)
   if(!calc){
-    const hoy = new Date(); hoy.setHours(0,0,0,0);
-    const finalizada = fechaFin < hoy;
-    if(finalizada){
-      return `<div class="deu" style="opacity:.6">
-        <div class="deu-hdr">
-          <div class="deu-name" style="font-size:15px;font-weight:700;color:var(--text)">🎲 ${d.concepto}</div>
-          <span class="badge a" style="font-size:11px">TANDA · ${freqLabel}</span>
-        </div>
-        <div class="prog"><div class="prog-f" style="width:100%;background:var(--green)"></div></div>
-        <div class="deu-pago-row" style="margin-top:10px">
-          <span style="font-size:13px;color:var(--green);font-weight:700">Tanda finalizada</span>
-          <span class="ch-del" onclick="borrarDeu(${i})">×</span>
-        </div>
-        <div style="font-size:11px;color:var(--text2);margin-top:6px">Fin de la tanda: ${fechaFinStr}</div>
-      </div>`;
-    }
     return `<div class="deu" style="opacity:.7">
       <div class="deu-hdr">
         <div class="deu-name" style="font-size:15px;font-weight:700;color:var(--text)">🎲 ${d.concepto}</div>
@@ -3212,15 +3372,71 @@ function renderTandaCard(d, i){
       id('tot-deu').textContent='$0.00'; return;
     }
 
-    list.innerHTML = S.deudas.map((d,i)=>{
+    const htmls = S.deudas.map((d,i)=>{
       if(d.tipo === 'tanda'){
         return renderTandaCard(d, i);
       }
-      // Deuda normal: replicamos el markup existente
+
       const calc = calcDeuEnPeriodo(d);
       const totalPagar = d.pago*d.plazo, interes=Math.max(0,totalPagar-(d.monto||0));
       const tasa = d.monto&&d.plazo?((interes/d.monto)/(d.plazo/(d.freq==='MENSUAL'?12:d.freq==='QUINCENAL'?24:52))*100):0;
 
+      // ── SEMANAL / QUINCENAL: tarjeta con formato nuevo ──
+      if(d.freq === 'SEMANAL' || d.freq === 'QUINCENAL'){
+        if(!calc || !calc._nuevo){
+          // Liquidada o sin actividad → NO mostrar (REQ 1)
+          return '';
+        }
+        const n = calc._nuevo;
+        const plazoActual = n.plazoActual;
+        const restantes = Math.max(0, d.plazo - plazoActual + 1);
+        const pct = d.plazo>0 ? Math.round(plazoActual/d.plazo*100) : 0;
+
+        // Sub-label
+        let sublbl = '';
+        if(n.modoRender === 'SEMANAL'){
+          // Si hay varios plazos en el periodo (sueldo quincenal): "Plazos 1,2 de 12"
+          if(n.plazosEnPeriodo && n.plazosEnPeriodo.length > 1){
+            const nums = n.plazosEnPeriodo.map(x=>x.plazoNum).join(',');
+            sublbl = `Plazos ${nums} de ${d.plazo}`;
+          } else {
+            sublbl = `Plazo ${plazoActual} de ${d.plazo}`;
+          }
+        } else if(n.modoRender === 'QUINCENAL_SUELDO_Q'){
+          sublbl = `Plazo ${plazoActual} de ${d.plazo}`;
+        } else { // QUINCENAL_SUELDO_S
+          sublbl = `S ${n.semanaEnPlazo}/${n.semanasTotalesPlazo} · Plazo ${plazoActual} de ${d.plazo}`;
+        }
+
+        const ratesBox = interes>0
+          ? `<div class="deu-rates" style="margin-top:8px">
+              <div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Tasa anual</div><div class="rate-v" style="font-size:13px;color:var(--text);font-weight:700">${tasa.toFixed(1)}%</div></div>
+              <div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Interés total</div><div class="rate-v r" style="font-size:13px;font-weight:700">${mxn(interes)}</div></div>
+              <div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Se debe aún</div><div class="rate-v r" style="font-size:13px;font-weight:700;color:var(--amber)">${mxn(n.saldoRestante)}</div></div>
+            </div>`
+          : `<div style="margin-top:8px;font-size:12px;color:var(--text2)">Se debe aún: <strong style="color:var(--amber);font-family:var(--mono)">${mxn(n.saldoRestante)}</strong></div>`;
+
+        return `<div class="deu">
+          <div class="deu-hdr">
+            <div class="deu-name" style="font-size:15px;font-weight:700;color:var(--text)">${d.concepto}</div>
+            <span class="badge a" style="font-size:11px">${d.freq}</span>
+          </div>
+          <div class="deu-stats" style="margin:6px 0;gap:12px">
+            <div class="deu-stat" style="font-size:13px;color:var(--text2)">Pago <span style="color:var(--text);font-weight:700">${plazoActual}</span> de <span style="color:var(--text);font-weight:700">${d.plazo}</span></div>
+            <div class="deu-stat" style="font-size:13px;color:var(--text2)">Faltan <span style="color:var(--green);font-weight:700">${restantes}</span></div>
+          </div>
+          <div style="font-size:12px;color:var(--teal);font-weight:600;margin-bottom:6px">${sublbl}</div>
+          <div class="prog"><div class="prog-f" style="width:${pct}%;background:var(--green)"></div></div>
+          ${ratesBox}
+          <div class="deu-pago-row" style="margin-top:10px">
+            <span style="font-size:13px;color:var(--text2);font-weight:500">Pago ${d.freq.toLowerCase()}: ${mxn(d.pago)} → este periodo:</span>
+            <span style="font-size:15px;font-weight:800;color:var(--amber);font-family:var(--mono)">-${mxn(n.pagoPeriodo)}</span>
+            <span class="ch-del" onclick="borrarDeu(${i})">×</span>
+          </div>
+        </div>`;
+      }
+
+      // ── MENSUAL: tarjeta original intacta ──
       if(!calc){
         return `<div class="deu" style="opacity:.5">
           <div class="deu-hdr">
@@ -3258,15 +3474,20 @@ function renderTandaCard(d, i){
           <div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Tasa anual</div><div class="rate-v" style="font-size:13px;color:var(--text);font-weight:700">${tasa.toFixed(1)}%</div></div>
           <div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Interés total</div><div class="rate-v r" style="font-size:13px;font-weight:700">${mxn(interes)}</div></div>
           <div class="rate-item"><div class="rate-l" style="font-size:12px;color:var(--text2)">Se debe aún</div><div class="rate-v r" style="font-size:13px;font-weight:700;color:var(--amber)">${mxn(saldoActual)}</div></div>
-        </div>`:''}
+        </div>`:`<div style="margin-top:8px;font-size:12px;color:var(--text2)">Se debe aún: <strong style="color:var(--amber);font-family:var(--mono)">${mxn(saldoActual)}</strong></div>`}
         <div class="deu-pago-row" style="margin-top:10px">
           <span style="font-size:13px;color:var(--text2);font-weight:500">Pago ${d.freq.toLowerCase()}: ${mxn(d.pago)} → este periodo:</span>
           <span style="font-size:15px;font-weight:800;color:var(--amber);font-family:var(--mono)">-${mxn(pagoQuincena)}</span>
           <span class="ch-del" onclick="borrarDeu(${i})">×</span>
         </div>
       </div>`;
-    }).join('');
+    }).filter(x => x); // filtrar vacíos (deudas liquidadas ocultas)
 
+    if(htmls.length === 0){
+      list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin deudas registradas</div>';
+    } else {
+      list.innerHTML = htmls.join('');
+    }
     id('tot-deu').textContent='-'+mxn(calcTotalDeu());
   };
 })();
@@ -3453,3 +3674,217 @@ function syncTandaExtras(){
 // ═══════════════════════════════════════════════════════
 // INIT — maneja auth y carga datos
 // ═══════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════════════
+// ═══ ONBOARDING (PRIMERA VEZ) ═════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// Estado temporal durante el onboarding
+const ONB = {
+  theme: 'dark',
+  modo: null,       // 'QUINCENAL' | 'SEMANAL'
+  diaCobro: 'Miércoles',
+  sueldo: 0,
+  fijo: false,
+  secciones: { extras:true, servicios:true, tdc:true, msi:true, deudas:true, otros:true, ahorro:true }
+};
+
+function onbNext(step){
+  for(let s=1; s<=5; s++){
+    const el = id('onb-step-'+s);
+    if(el) el.style.display = (s===step) ? 'block' : 'none';
+  }
+  // Llegando al paso 4, actualizar label del periodo
+  if(step === 4){
+    try {
+      const p = PERIODOS[S.periodoIdx];
+      if(p){
+        const f1 = new Date(p.ini).toLocaleDateString('es-MX',{day:'2-digit',month:'short'});
+        const f2 = new Date(p.fin).toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'});
+        id('onb-periodo-lbl').textContent = `(${f1} – ${f2})`;
+      }
+    } catch(e){}
+  }
+}
+
+function onbTheme(t){
+  ONB.theme = t;
+  document.querySelectorAll('.onb-theme').forEach(b=>{
+    b.classList.toggle('sel', b.dataset.theme === t);
+  });
+  // Aplicar en vivo para preview
+  try {
+    document.body.classList.remove('theme-dark','theme-light','theme-classic');
+    document.body.classList.add('theme-'+t);
+    if(typeof aplicarTema === 'function') aplicarTema(t);
+  } catch(e){}
+}
+
+function onbModo(m){
+  ONB.modo = m;
+  document.querySelectorAll('.onb-modo').forEach(b=>{
+    b.classList.toggle('sel', b.dataset.modo === m);
+  });
+  const extra = id('onb-modo-extra');
+  const diaRow = id('onb-dia-row');
+  if(extra) extra.style.display = 'block';
+  if(diaRow) diaRow.style.display = (m === 'SEMANAL') ? 'block' : 'none';
+}
+
+async function onbFinish(){
+  // Capturar datos del form
+  ONB.sueldo = parseFloat(id('onb-sueldo').value) || 0;
+  ONB.fijo = id('onb-fijo').checked;
+  if(ONB.modo === 'SEMANAL'){
+    ONB.diaCobro = id('onb-dia').value || 'Miércoles';
+  }
+  document.querySelectorAll('.onb-sec-chk').forEach(chk => {
+    ONB.secciones[chk.dataset.sec] = chk.checked;
+  });
+
+  // Validación mínima
+  if(!ONB.modo){
+    alert('Selecciona tu modo de sueldo (quincenal o semanal) antes de continuar.');
+    onbNext(3); return;
+  }
+
+  // Aplicar al estado global S
+  try {
+    S.tema = ONB.theme;
+    S.modo = ONB.modo;
+    if(ONB.modo === 'SEMANAL') S.diaCobro = ONB.diaCobro;
+    S.sueldo = ONB.sueldo;
+    S.sueldoFijo = ONB.fijo;
+    // Guardar sueldo del periodo actual
+    if(!S.sueldos) S.sueldos = {};
+    S.sueldos[S.periodoIdx] = ONB.sueldo;
+
+    // Secciones visibles
+    if(!S.secciones) S.secciones = {};
+    Object.assign(S.secciones, ONB.secciones);
+
+    // Marcar onboarding completado
+    S.onboardingDone = true;
+
+    // Persistir
+    if(typeof save === 'function') save();
+    localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+
+    // Guardar en DB si hay columna (opcional, mejor esfuerzo)
+    try {
+      if(typeof UID !== 'undefined' && UID){
+        await supa.from('perfiles').upsert({
+          user_id: UID,
+          tema: S.tema,
+          modo: S.modo,
+          sueldo: S.sueldo,
+          sueldo_fijo: S.sueldoFijo,
+          dia_cobro: S.diaCobro || null,
+          secciones: S.secciones,
+          onboarding_done: true
+        }, { onConflict:'user_id' });
+      }
+    } catch(e){ console.warn('perfiles upsert (opcional):', e); }
+
+    // Aplicar visibilidad de secciones
+    aplicarVisibilidadSecciones();
+  } catch(e){ console.warn('onbFinish:', e); }
+
+  closeModal('m-onboard');
+  // Refrescar todo
+  try {
+    if(typeof aplicarTema === 'function') aplicarTema(S.tema);
+    if(typeof renderPrincipal === 'function') renderPrincipal();
+    if(typeof renderAllSections === 'function') renderAllSections();
+    if(window.renderDeu) window.renderDeu();
+    if(window.renderExt) window.renderExt();
+    if(window.renderSvc) window.renderSvc();
+    if(window.renderTDC) window.renderTDC();
+    if(window.renderMsi) window.renderMsi();
+  } catch(e){}
+}
+
+// Aplica la visibilidad de secciones según S.secciones
+// Busca los contenedores por ID conocidos o data-atributos.
+function aplicarVisibilidadSecciones(){
+  if(!S.secciones) return;
+  const mapa = {
+    extras:    ['sec-ext','sec-extras','ext-sec','section-extras'],
+    servicios: ['sec-svc','sec-servicios','svc-sec','section-servicios'],
+    tdc:       ['sec-tdc','section-tdc'],
+    msi:       ['sec-msi','section-msi'],
+    deudas:    ['sec-deu','sec-deudas','deu-sec','section-deudas'],
+    otros:     ['sec-otros','section-otros','sec-mov'],
+    ahorro:    ['sec-aho','sec-ahorro','section-ahorro']
+  };
+  Object.keys(mapa).forEach(key => {
+    const visible = S.secciones[key] !== false;
+    // Buscar por IDs posibles
+    mapa[key].forEach(tid => {
+      const el = document.getElementById(tid);
+      if(el) el.style.display = visible ? '' : 'none';
+    });
+    // Buscar por data-section
+    document.querySelectorAll(`[data-section="${key}"]`).forEach(el => {
+      el.style.display = visible ? '' : 'none';
+    });
+  });
+}
+
+// Lanzar onboarding si es primera vez. Se ejecuta DESPUÉS de que init cargue datos.
+function mostrarOnboardingSiEsNecesario(){
+  if(!S) return;
+  if(S.onboardingDone) return;
+  // También chequear localStorage para no mostrarlo dos veces
+  const flag = localStorage.getItem('onboarding_done_'+UID);
+  if(flag === '1'){
+    S.onboardingDone = true;
+    return;
+  }
+  // Saludo personalizado
+  try {
+    let nombre = '';
+    if(typeof supa !== 'undefined'){
+      supa.auth.getUser().then(({data})=>{
+        const u = data && data.user;
+        if(u){
+          nombre = u.user_metadata?.full_name || u.user_metadata?.name || (u.email||'').split('@')[0] || '';
+        }
+        const hola = nombre ? `¡Bienvenid@, ${nombre}` : '¡Bienvenid@';
+        const el = id('onb-hola'); if(el) el.textContent = hola;
+      }).catch(()=>{});
+    }
+  } catch(e){}
+  // Inicializar paso 1 y mostrar
+  onbNext(1);
+  openModal('m-onboard');
+}
+
+// Hook: después de que init termine de cargar, llamar a mostrarOnboardingSiEsNecesario
+// init() es async y está al final; no existe aún en este file. Esperamos con un intervalo.
+(function hookOnboarding(){
+  let tries = 0;
+  const iv = setInterval(() => {
+    tries++;
+    if(typeof UID !== 'undefined' && UID && typeof S !== 'undefined' && S && PERIODOS && PERIODOS.length){
+      clearInterval(iv);
+      // Pequeño delay para asegurar que el DOM y los renders iniciales estén listos
+      setTimeout(() => mostrarOnboardingSiEsNecesario(), 800);
+    } else if(tries > 150){  // 15 segundos máx
+      clearInterval(iv);
+    }
+  }, 100);
+})();
+
+// Persistir flag al cerrar manualmente el onboarding (escape / fuera de modal)
+// y al completarlo
+(function(){
+  const origCloseModal = window.closeModal;
+  window.closeModal = function(idModal){
+    if(idModal === 'm-onboard' && S && S.onboardingDone){
+      localStorage.setItem('onboarding_done_'+UID, '1');
+    }
+    if(typeof origCloseModal === 'function') return origCloseModal(idModal);
+    const el = id(idModal); if(el) el.classList.remove('show');
+  };
+})();

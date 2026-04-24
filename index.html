@@ -536,6 +536,105 @@
 
 <!-- ══ MODALES ══ -->
 
+<!-- Onboarding / Bienvenida primera vez -->
+<div class="overlay" id="m-onboard">
+  <div class="modal" style="max-height:85vh;overflow-y:auto">
+    <div class="m-handle"></div>
+    <div class="m-title" id="onb-title">¡Bienvenid@!</div>
+
+    <!-- Paso 1: Bienvenida -->
+    <div id="onb-step-1">
+      <div style="font-size:15px;color:var(--text);margin-bottom:10px;line-height:1.5">
+        <span id="onb-hola">¡Bienvenid@</span> a tu nueva app para el control financiero personal! 🎉
+      </div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:16px;line-height:1.5">
+        A continuación vamos a configurar tus primeros ajustes.
+      </div>
+      <div class="m-footer">
+        <button class="btn btn-p" style="flex:1" onclick="onbNext(2)">Empezar →</button>
+      </div>
+    </div>
+
+    <!-- Paso 2: Aspecto -->
+    <div id="onb-step-2" style="display:none">
+      <div style="font-size:14px;color:var(--text2);margin-bottom:10px">Paso 1 de 4</div>
+      <div class="fl" style="margin-bottom:6px">Aspecto de la app</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+        <button class="btn onb-theme" data-theme="oscuro" onclick="onbTheme('oscuro')">🌙 Oscuro</button>
+        <button class="btn onb-theme" data-theme="claro" onclick="onbTheme('claro')">☀️ Claro</button>
+        <button class="btn onb-theme" data-theme="clasico" onclick="onbTheme('clasico')">📘 Clásico</button>
+      </div>
+      <div class="m-footer">
+        <button class="btn btn-g" style="flex:1" onclick="onbNext(1)">← Atrás</button>
+        <button class="btn btn-p" style="flex:2" onclick="onbNext(3)">Siguiente →</button>
+      </div>
+    </div>
+
+    <!-- Paso 3: Modo de sueldo -->
+    <div id="onb-step-3" style="display:none">
+      <div style="font-size:14px;color:var(--text2);margin-bottom:10px">Paso 2 de 4</div>
+      <div class="fl" style="margin-bottom:6px">¿Cómo cobras tu sueldo?</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <button class="btn onb-modo" data-modo="QUINCENAL" onclick="onbModo('QUINCENAL')" style="flex:1">Quincenal</button>
+        <button class="btn onb-modo" data-modo="SEMANAL" onclick="onbModo('SEMANAL')" style="flex:1">Semanal</button>
+      </div>
+      <div id="onb-modo-extra" style="display:none">
+        <div class="frow" id="onb-dia-row" style="display:none">
+          <div class="fg"><div class="fl">Día de cobro (semanal)</div>
+            <select class="fi" id="onb-dia">
+              <option>Lunes</option><option>Martes</option><option selected>Miércoles</option><option>Jueves</option><option>Viernes</option><option>Sábado</option><option>Domingo</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="m-footer">
+        <button class="btn btn-g" style="flex:1" onclick="onbNext(2)">← Atrás</button>
+        <button class="btn btn-p" style="flex:2" onclick="onbNext(4)">Siguiente →</button>
+      </div>
+    </div>
+
+    <!-- Paso 4: Sueldo -->
+    <div id="onb-step-4" style="display:none">
+      <div style="font-size:14px;color:var(--text2);margin-bottom:10px">Paso 3 de 4</div>
+      <div class="frow"><div class="fg"><div class="fl">Tu sueldo $</div><input class="fi" type="number" id="onb-sueldo" inputmode="decimal" placeholder="0.00"></div></div>
+      <div style="display:flex;align-items:center;gap:8px;margin:10px 0">
+        <input type="checkbox" id="onb-fijo" style="width:18px;height:18px">
+        <label for="onb-fijo" style="font-size:13px;color:var(--text)">Mi sueldo es fijo</label>
+      </div>
+      <div class="ibox" style="font-size:12px;line-height:1.5">
+        Si tu sueldo es fijo, actívalo y se aplicará automáticamente a cada periodo. Si no, no te preocupes: este monto sólo se usará para tu primer periodo actual <strong id="onb-periodo-lbl"></strong>.
+      </div>
+      <div class="m-footer">
+        <button class="btn btn-g" style="flex:1" onclick="onbNext(3)">← Atrás</button>
+        <button class="btn btn-p" style="flex:2" onclick="onbNext(5)">Siguiente →</button>
+      </div>
+    </div>
+
+    <!-- Paso 5: Secciones visibles -->
+    <div id="onb-step-5" style="display:none">
+      <div style="font-size:14px;color:var(--text2);margin-bottom:10px">Paso 4 de 4</div>
+      <div class="fl" style="margin-bottom:6px">Marca las secciones que usarás</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Podrás activarlas/desactivarlas después en Configuración.</div>
+
+      <div style="font-size:13px;color:var(--teal);font-weight:700;margin:10px 0 6px">Percepciones</div>
+      <label class="onb-sec"><input type="checkbox" class="onb-sec-chk" data-sec="extras" checked> Extras <span class="onb-sec-desc">(ingresos adicionales)</span></label>
+
+      <div style="font-size:13px;color:var(--amber);font-weight:700;margin:14px 0 6px">Deducciones</div>
+      <label class="onb-sec"><input type="checkbox" class="onb-sec-chk" data-sec="servicios" checked> Servicios</label>
+      <label class="onb-sec"><input type="checkbox" class="onb-sec-chk" data-sec="tdc" checked> TDC (tarjetas de crédito)</label>
+      <label class="onb-sec"><input type="checkbox" class="onb-sec-chk" data-sec="msi" checked> MSI (meses sin intereses)</label>
+      <label class="onb-sec"><input type="checkbox" class="onb-sec-chk" data-sec="deudas" checked> Deudas y Tandas</label>
+      <label class="onb-sec"><input type="checkbox" class="onb-sec-chk" data-sec="otros" checked> Otros gastos</label>
+      <label class="onb-sec"><input type="checkbox" class="onb-sec-chk" data-sec="ahorro" checked> Ahorro</label>
+
+      <div class="m-footer">
+        <button class="btn btn-g" style="flex:1" onclick="onbNext(4)">← Atrás</button>
+        <button class="btn btn-p" style="flex:2" onclick="onbFinish()">Empezar a usar la app ✓</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Config -->
 <div class="overlay" id="m-cfg">
   <div class="modal">
@@ -748,6 +847,13 @@
 
     <!-- ═══ CAMPOS DEUDA NORMAL ═══ -->
     <div id="deu-campos-normal">
+      <div class="frow">
+        <div class="fg"><div class="fl">Frecuencia</div>
+          <select class="fi" id="deu-freq" onchange="setDeuFreq();checkDeuFecha()">
+            <option>MENSUAL</option><option>QUINCENAL</option><option>SEMANAL</option>
+          </select>
+        </div>
+      </div>
       <div class="frow"><div class="fg"><div class="fl">Concepto</div><input class="fi" id="deu-c" placeholder="Ej: Préstamo personal"></div></div>
       <div class="frow">
         <div class="fg"><div class="fl">Monto total $</div><input class="fi" type="number" id="deu-m" inputmode="decimal"></div>
@@ -758,17 +864,15 @@
         <div class="fg"><div class="fl">Fecha 1er pago</div><input class="fi" type="date" id="deu-ini" oninput="checkDeuFecha()"></div>
       </div>
       <div class="ibox" id="deu-fnote" style="display:none">—</div>
-      <div class="frow">
-        <div class="fg"><div class="fl">Frecuencia</div>
-          <select class="fi" id="deu-freq" onchange="setDeuFreq();checkDeuFecha()">
-            <option>MENSUAL</option><option>QUINCENAL</option><option>SEMANAL</option>
-          </select>
-        </div>
-        <div class="fg" id="deu-dia-s-w" style="display:none"><div class="fl">Día semana</div>
+      <!-- Día semana oculto (solo usado por MENSUAL si aplica, pero en SEMANAL se deduce de fecha ini) -->
+      <div class="frow" id="deu-dia-row" style="display:none">
+        <div class="fg"><div class="fl">Día semana</div>
           <select class="fi" id="deu-dias"><option>Lunes</option><option>Martes</option><option>Miércoles</option><option>Jueves</option><option selected>Viernes</option><option>Sábado</option><option>Domingo</option></select>
         </div>
       </div>
-      <div class="frow"><div class="fg"><div class="fl">Pago mensual con intereses $</div><input class="fi" type="number" id="deu-pg" inputmode="decimal" oninput="calcDeuInfo()"></div></div>
+      <!-- Mantener id="deu-dia-s-w" por compatibilidad con setDeuFreq() viejo -->
+      <div id="deu-dia-s-w" style="display:none"></div>
+      <div class="frow"><div class="fg"><div class="fl">Pago con intereses $</div><input class="fi" type="number" id="deu-pg" inputmode="decimal" oninput="calcDeuInfo()"></div></div>
       <div class="ibox" id="deu-info" style="display:none">—</div>
     </div>
 

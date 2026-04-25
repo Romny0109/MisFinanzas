@@ -183,7 +183,8 @@ async function saveConfigDB(){
       sueldo_por_periodo: JSON.stringify(S.sueldoPorPeriodo || {}),
       otros_gastos: JSON.stringify(S.otrosGastos || []),
       sexo: S.sexo || null,
-      onboarding_done: !!S.onboardingDone
+      onboarding_done: !!S.onboardingDone,
+      username: (typeof CURRENT_USER !== 'undefined' && CURRENT_USER) ? CURRENT_USER.username : null
     };
     const {error} = await supa.from('config').upsert(payload, {onConflict:'user_id'});
     if(error){
@@ -438,20 +439,24 @@ function goTabBtn(tabId){
 // MODALES
 // ═══════════════════════════════════════════════════════
 function openModal(mid){
-  document.getElementById(mid).classList.add('open');
+  const el = document.getElementById(mid);
+  el.classList.add('open');
+  // Si es onboarding, marcamos como bloqueado (no se cierra al picar fuera)
+  if(mid === 'm-onboard') el.setAttribute('data-blocked','1');
   const fi = document.querySelector(`#${mid} input[type=date]`);
   if(fi && !fi.value) fi.value = todayStr();
 }
 function closeModal(mid){
-  // Onboarding NO se puede cerrar manualmente — solo terminándolo con el botón final
-  if(mid === 'm-onboard' && S && !S.onboardingDone) return;
-  document.getElementById(mid).classList.remove('open');
+  const el = document.getElementById(mid);
+  // Onboarding bloqueado: solo se cierra desde dentro (onbFinish lo libera)
+  if(mid === 'm-onboard' && el && el.getAttribute('data-blocked') === '1') return;
+  if(el) el.classList.remove('open');
 }
-document.querySelectorAll('.overlay').forEach(o=>{
-  o.addEventListener('click',e=>{
-    // Onboarding bloquea el click-fuera-cierra
-    if(o.id === 'm-onboard' && S && !S.onboardingDone) return;
-    if(e.target===o) o.classList.remove('open');
+document.addEventListener('click', function(e){
+  document.querySelectorAll('.overlay.open').forEach(o => {
+    // Si el modal está bloqueado (onboarding sin terminar), ignorar click fuera
+    if(o.getAttribute('data-blocked') === '1') return;
+    if(e.target === o) o.classList.remove('open');
   });
 });
 function todayStr(){ return new Date().toISOString().split('T')[0] }
@@ -4217,6 +4222,9 @@ async function onbFinish(){
     if(typeof aplicarSecciones === 'function') aplicarSecciones();
   } catch(e){ console.warn('onbFinish:', e); }
 
+  // Liberar el bloqueo antes de cerrar
+  const onb = document.getElementById('m-onboard');
+  if(onb) onb.removeAttribute('data-blocked');
   closeModal('m-onboard');
   // Refrescar todo
   try {

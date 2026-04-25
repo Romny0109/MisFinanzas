@@ -323,10 +323,23 @@ async function resetPassUsuario(i){
 async function deleteUsuario(i){
   const users = await getUsers();
   const u = users[i];
-  if(!confirm(`¿Eliminar a @${u.username}? Se perderán todos sus datos.`)) return;
+  if(!confirm(`¿Eliminar a @${u.username}? Se perderán TODOS sus datos en la base de datos.`)) return;
+  if(!confirm(`Confirmar eliminación de @${u.username}. Esta acción NO se puede deshacer.`)) return;
+
+  // Borrar de TODAS las tablas relacionadas
+  const tablas = [
+    'config', 'servicios', 'extras', 'tarjetas', 'movimientos',
+    'msis', 'deudas', 'historial', 'notificaciones_estado'
+  ];
+  for(const t of tablas){
+    try { await supa.from(t).delete().eq('user_id', u.id); }
+    catch(e){ console.warn(`delete from ${t}:`, e); }
+  }
+  // Borrar el usuario al final
   await deleteUserDB(u.id);
   _usersCache.splice(i,1);
   renderAdminUsers();
+  alert(`Usuario @${u.username} eliminado completamente.`);
 }
 function abrirAdmin(){
   if(!CURRENT_USER||CURRENT_USER.rol!=='admin') return;

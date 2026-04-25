@@ -3980,12 +3980,21 @@ function onbSexo(s){
 async function onbActualizarSaludo(){
   let nombre = '';
   try {
-    if(typeof supa !== 'undefined'){
-      const {data} = await supa.auth.getUser();
-      const u = data && data.user;
-      if(u){
-        nombre = u.user_metadata?.full_name || u.user_metadata?.name || (u.email||'').split('@')[0] || '';
-      }
+    // Tu app usa sistema de auth custom (CURRENT_USER en auth.js), no Supabase Auth
+    if(typeof CURRENT_USER !== 'undefined' && CURRENT_USER){
+      const n = CURRENT_USER.nombre || '';
+      const a = CURRENT_USER.apellido || '';
+      nombre = (n + ' ' + a).trim() || CURRENT_USER.username || '';
+    }
+    // Fallback a Supabase Auth si existiera (compat)
+    if(!nombre && typeof supa !== 'undefined'){
+      try {
+        const {data} = await supa.auth.getUser();
+        const u = data && data.user;
+        if(u){
+          nombre = u.user_metadata?.full_name || u.user_metadata?.name || (u.email||'').split('@')[0] || '';
+        }
+      } catch(e){}
     }
   } catch(e){}
   let saludo;

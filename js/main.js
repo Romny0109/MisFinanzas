@@ -1,7 +1,21 @@
 // ESTADO GLOBAL (cache local para rendimiento)
 // ═══════════════════════════════════════════════════════
+// Normaliza el día de la semana al formato canónico ('Viernes', 'Miércoles', etc.)
+// Acepta 'VIERNES', 'viernes', 'Viernes', 'MIERCOLES', 'miercoles', etc.
+function normalizarDiaSem(s){
+  if(!s || typeof s !== 'string') return 'Viernes';
+  const map = {
+    'DOMINGO':'Domingo', 'LUNES':'Lunes', 'MARTES':'Martes',
+    'MIERCOLES':'Miércoles', 'MIÉRCOLES':'Miércoles',
+    'JUEVES':'Jueves', 'VIERNES':'Viernes',
+    'SABADO':'Sábado', 'SÁBADO':'Sábado'
+  };
+  const upper = s.toUpperCase();
+  return map[upper] || s; // Si ya viene en formato correcto, devuelve igual
+}
+
 const DEF = {
-  modo:'QUINCENAL', diaSem:'VIERNES', tema:'clasico',
+  modo:'QUINCENAL', diaSem:'Viernes', tema:'clasico',
   secciones:{principal:true,servicios:true,extras:true,tdc:true,msi:true,deudas:true,otros:true,ahorro:true},
   periodoIdx:0, sueldo:0, sueldoFijo:true, sueldoPorPeriodo:{},
   ahoModo:'pct', ahoPct:10, ahoFijo:0, ahoMonto:0,
@@ -53,7 +67,10 @@ async function loadFromSupabase(silencioso=false){
     if(data && !error){
       const c = data;
       S.modo = c.modo || 'QUINCENAL';
-      S.diaSem = c.dia_sem || 'VIERNES';
+      // Normalizar día: la BD puede tener 'VIERNES' (legacy) o 'Viernes'.
+      // El código y el array diasSem usan 'Viernes' (primera letra mayúscula).
+      const diaRaw = c.dia_sem || 'Viernes';
+      S.diaSem = normalizarDiaSem(diaRaw);
       S.periodoIdx = 0;
       S.sueldo = parseFloat(c.sueldo) || 0;
       S.sueldoFijo = c.sueldo_fijo !== false;
@@ -2238,6 +2255,9 @@ function abrirConfig(){
   id('cfg-modo').value=S.modo;
   id('cfg-tema').value=S.tema||'clasico';
   id('cfg-tz').value=S.zonaHoraria||'auto';
+  // Cargar día de cobro actual normalizado
+  const diaActual = normalizarDiaSem(S.diaSem || 'Viernes');
+  if(id('cfg-dia')) id('cfg-dia').value = diaActual;
   onModoChange();
   // Sincronizar checkboxes de secciones con el estado actual
   if(!S.secciones) S.secciones = {extras:true,servicios:true,tdc:true,msi:true,deudas:true,otros:true,ahorro:true};
@@ -2336,7 +2356,7 @@ function aplicarSecciones(){
 }
 function guardarConfig(){
   S.modo = id('cfg-modo').value;
-  S.diaSem = id('cfg-dia').value;
+  S.diaSem = normalizarDiaSem(id('cfg-dia').value);
   S.tema = id('cfg-tema').value;
   S.zonaHoraria = id('cfg-tz').value;
   // Read section checkboxes
@@ -4184,7 +4204,7 @@ async function onbFinish(){
     S.tema = ONB.theme;
     S.modo = ONB.modo;
     if(ONB.modo === 'SEMANAL'){
-      S.diaSem = (ONB.diaCobro || 'Miércoles').toUpperCase();
+      S.diaSem = normalizarDiaSem(ONB.diaCobro || 'Miércoles');
     }
     S.sueldo = ONB.sueldo;
     S.sueldoFijo = ONB.fijo;

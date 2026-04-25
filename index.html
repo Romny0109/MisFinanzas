@@ -67,6 +67,11 @@
 <div class="sidebar" id="sidebar">
   <div class="sb-logo">Mis <span>Finanzas</span></div>
   <div class="sb-date" id="sb-date">—</div>
+  <button id="notif-btn-sb" onclick="abrirNotificaciones()" title="Notificaciones" style="position:relative;display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;margin-bottom:6px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer;font-size:13px;font-weight:600;font-family:var(--font)">
+    <span style="font-size:16px">🔔</span>
+    <span style="flex:1;text-align:left">Notificaciones</span>
+    <span id="notif-badge-sb" style="display:none;background:var(--red);color:#fff;font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;padding:0 5px;align-items:center;justify-content:center">0</span>
+  </button>
   <div class="sb-sep">Navegación</div>
   <button class="sb-tab on" data-tab="principal" onclick="goSidebar('principal',this)"><span class="ti">·</span>Principal</button>
   <button class="sb-tab" data-tab="servicios" onclick="goSidebar('servicios',this)"><span class="ti">·</span>Servicios</button>

@@ -67,6 +67,8 @@ async function loadFromSupabase(silencioso=false){
       if(c.secciones) try { S.secciones = JSON.parse(c.secciones); } catch(e){}
       if(c.sueldo_por_periodo) try { S.sueldoPorPeriodo = JSON.parse(c.sueldo_por_periodo); } catch(e){}
       if(c.otros_gastos) try { S.otrosGastos = JSON.parse(c.otros_gastos); } catch(e){}
+      if(c.sexo) S.sexo = c.sexo;
+      if(c.onboarding_done) S.onboardingDone = !!c.onboarding_done;
     }
     if(error) console.warn('config load error:', error.message);
   } catch(e){ console.warn('config load fail:', e); }
@@ -175,7 +177,9 @@ async function saveConfigDB(){
       secciones: JSON.stringify(S.secciones || {}),
       zona_horaria: S.zonaHoraria || '',
       sueldo_por_periodo: JSON.stringify(S.sueldoPorPeriodo || {}),
-      otros_gastos: JSON.stringify(S.otrosGastos || [])
+      otros_gastos: JSON.stringify(S.otrosGastos || []),
+      sexo: S.sexo || null,
+      onboarding_done: !!S.onboardingDone
     };
     const {error} = await supa.from('config').upsert(payload, {onConflict:'user_id'});
     if(error){
@@ -2218,29 +2222,11 @@ function abrirConfig(){
   id('cfg-tema').value=S.tema||'clasico';
   id('cfg-tz').value=S.zonaHoraria||'auto';
   onModoChange();
-  // Sincronizar checkboxes de secciones con el estado actual + listeners
+  // Sincronizar checkboxes de secciones con el estado actual
   if(!S.secciones) S.secciones = {extras:true,servicios:true,tdc:true,msi:true,deudas:true,otros:true,ahorro:true};
-  const cfgKeys = ['servicios','extras','tdc','msi','deudas','otros','ahorro'];
-  cfgKeys.forEach(key => {
+  ['servicios','extras','tdc','msi','deudas','otros','ahorro'].forEach(key => {
     const chk = document.getElementById('sec-' + key);
-    if(!chk) return;
-    chk.checked = S.secciones[key] !== false;
-    // Quitar handler previo y agregar el nuevo (asignación directa para evitar duplicados)
-    chk.onchange = async function(){
-      S.secciones[key] = chk.checked;
-      if(typeof save === 'function') save();
-      localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
-      // Persistir en BD
-      try {
-        if(typeof UID !== 'undefined' && UID){
-          await supa.from('perfiles').upsert({
-            user_id: UID,
-            secciones: S.secciones
-          }, { onConflict:'user_id' });
-        }
-      } catch(e){ console.warn('actualizar secciones:', e); }
-      aplicarVisibilidadSecciones();
-    };
+    if(chk) chk.checked = S.secciones[key] !== false;
   });
   // Font size buttons
   aplicarFontSize(S.fontSize || 0);
@@ -4022,53 +4008,11 @@ function syncTandaExtras(){
 
 // Patch: recuperar flags autoTanda/tandaId desde DB una vez que UID exista
 // Patch: cargar perfil desde DB para sincronizar entre dispositivos
+// Patch: cargar perfil desde DB - ya no se usa, los datos vienen de tabla `config`
+// vía loadFromSupabase. Función dejada como no-op por compatibilidad.
 (async function cargarPerfilDesdeDB(){
-  const waitUID = () => new Promise(r => {
-    const t = setInterval(() => { if(typeof UID !== 'undefined' && UID){ clearInterval(t); r(); } }, 100);
-    setTimeout(() => { clearInterval(t); r(); }, 15000);
-  });
-  await waitUID();
-  if(typeof UID === 'undefined' || !UID) return;
-  try {
-    const {data} = await supa.from('perfiles').select('*').eq('user_id', UID).maybeSingle();
-    if(!data) return;
-    const modoAnterior = S.modo;
-    const diaSemAnterior = S.diaSem;
-    // Aplicar al estado S
-    if(data.sexo) S.sexo = data.sexo;
-    if(data.tema) S.tema = data.tema;
-    if(data.modo) S.modo = data.modo;
-    if(data.sueldo != null) S.sueldo = parseFloat(data.sueldo)||0;
-    if(data.sueldo_fijo != null) S.sueldoFijo = !!data.sueldo_fijo;
-    if(data.dia_cobro){
-      S.diaCobro = data.dia_cobro;
-      S.diaSem = data.dia_cobro;
-    }
-    if(data.secciones) S.secciones = Object.assign(S.secciones||{}, data.secciones);
-    if(data.onboarding_done){
-      S.onboardingDone = true;
-      localStorage.setItem('onboarding_done_'+UID, '1');
-    }
-    // Si cambió el modo o el día de cobro, regenerar PERIODOS
-    if(modoAnterior !== S.modo || diaSemAnterior !== S.diaSem){
-      try {
-        if(typeof calcPeriodosDesdeHoy === 'function'){
-          PERIODOS = calcPeriodosDesdeHoy();
-          const hoy = new Date(); hoy.setHours(0,0,0,0);
-          for(let i=0; i<PERIODOS.length; i++){
-            const pIni = new Date(PERIODOS[i].ini); pIni.setHours(0,0,0,0);
-            const pFin = new Date(PERIODOS[i].fin); pFin.setHours(0,0,0,0);
-            if(hoy >= pIni && hoy <= pFin){ S.periodoIdx = i; break; }
-          }
-        }
-      } catch(e){ console.warn('regen periodos:', e); }
-    }
-    // Aplicar tema y visibilidad
-    if(typeof aplicarTema === 'function' && S.tema) aplicarTema(S.tema);
-    if(typeof aplicarVisibilidadSecciones === 'function') aplicarVisibilidadSecciones();
-    // Re-render
-    if(typeof renderPrincipal === 'function') renderPrincipal();
-  } catch(e){ console.warn('cargar perfil:', e); }
+  // No-op: ahora todo se lee de la tabla `config` en loadFromSupabase
+  return;
 })();
 
 (async function patchExtrasLoad(){
@@ -4219,22 +4163,14 @@ async function onbFinish(){
 
   // Aplicar al estado global S
   try {
-    const modoCambio = S.modo !== ONB.modo;
-    const diaCobroCambio = ONB.modo === 'SEMANAL' && S.diaSem !== ONB.diaCobro;
-
     S.sexo = ONB.sexo;
     S.tema = ONB.theme;
     S.modo = ONB.modo;
-    // Importante: la app usa S.diaSem (no S.diaCobro) para el día de cobro semanal
     if(ONB.modo === 'SEMANAL'){
-      S.diaCobro = ONB.diaCobro;
-      S.diaSem = ONB.diaCobro;
+      S.diaSem = (ONB.diaCobro || 'Miércoles').toUpperCase();
     }
     S.sueldo = ONB.sueldo;
     S.sueldoFijo = ONB.fijo;
-    // Guardar sueldo del periodo actual
-    if(!S.sueldos) S.sueldos = {};
-    S.sueldos[S.periodoIdx] = ONB.sueldo;
 
     // Secciones visibles
     if(!S.secciones) S.secciones = {};
@@ -4243,118 +4179,45 @@ async function onbFinish(){
     // Marcar onboarding completado
     S.onboardingDone = true;
 
-    // Si cambió el modo o el día de cobro, regenerar PERIODOS
-    if(modoCambio || diaCobroCambio){
-      try {
-        if(typeof calcPeriodosDesdeHoy === 'function'){
-          PERIODOS = calcPeriodosDesdeHoy();
-          // Buscar el periodo que contiene HOY
-          const hoy = new Date(); hoy.setHours(0,0,0,0);
-          let nuevoIdx = 0;
-          for(let i=0; i<PERIODOS.length; i++){
-            const pIni = new Date(PERIODOS[i].ini); pIni.setHours(0,0,0,0);
-            const pFin = new Date(PERIODOS[i].fin); pFin.setHours(0,0,0,0);
-            if(hoy >= pIni && hoy <= pFin){ nuevoIdx = i; break; }
-          }
-          S.periodoIdx = nuevoIdx;
-          // Re-asignar sueldo al nuevo periodo
-          S.sueldos[S.periodoIdx] = ONB.sueldo;
+    // Regenerar PERIODOS según modo nuevo
+    try {
+      if(typeof calcPeriodosDesdeHoy === 'function'){
+        PERIODOS = calcPeriodosDesdeHoy();
+        S.periodoIdx = 0;
+        // Guardar sueldo del periodo actual si NO es fijo
+        if(!S.sueldoFijo){
+          if(!S.sueldoPorPeriodo) S.sueldoPorPeriodo = {};
+          const lblPeriodo = PERIODOS[0]?.lbl;
+          if(lblPeriodo) S.sueldoPorPeriodo[lblPeriodo] = ONB.sueldo;
         }
-      } catch(e){ console.warn('regenerar periodos:', e); }
-    }
+      }
+    } catch(e){ console.warn('regen periodos onb:', e); }
 
-    // Persistir
+    // Persistir local + DB
     if(typeof save === 'function') save();
     localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
-
-    // Guardar en DB
     try {
-      if(typeof UID !== 'undefined' && UID){
-        await supa.from('perfiles').upsert({
-          user_id: UID,
-          sexo: S.sexo,
-          tema: S.tema,
-          modo: S.modo,
-          sueldo: S.sueldo,
-          sueldo_fijo: S.sueldoFijo,
-          dia_cobro: S.diaCobro || null,
-          secciones: S.secciones,
-          onboarding_done: true
-        }, { onConflict:'user_id' });
-      }
-    } catch(e){ console.warn('perfiles upsert (opcional):', e); }
+      await saveConfigDB();
+    } catch(e){ console.warn('saveConfigDB onb:', e); }
 
-    // Aplicar visibilidad de secciones
-    aplicarVisibilidadSecciones();
+    // Aplicar tema y visibilidad
+    if(typeof aplicarTema === 'function') aplicarTema(S.tema);
+    if(typeof aplicarSecciones === 'function') aplicarSecciones();
   } catch(e){ console.warn('onbFinish:', e); }
 
   closeModal('m-onboard');
   // Refrescar todo
   try {
-    if(typeof aplicarTema === 'function') aplicarTema(S.tema);
-    if(typeof renderPrincipal === 'function') renderPrincipal();
-    if(window.renderDeu) window.renderDeu();
-    if(window.renderExt) window.renderExt();
-    if(window.renderSvc) window.renderSvc();
-    if(window.renderTDC) window.renderTDC();
-    if(window.renderMsi) window.renderMsi();
+    if(typeof renderAll === 'function') renderAll();
+    else if(typeof renderPrincipal === 'function') renderPrincipal();
   } catch(e){}
 }
 
-// Aplica la visibilidad de secciones según S.secciones
-// Oculta:
-//   - Tabs del sidebar (.sb-tab[data-tab=X])
-//   - Tabs móviles (.tab por índice)
-//   - Filas de Percepciones/Deducciones en el main (data-section=X)
-// IMPORTANTE: NO oculta los checkboxes 'sec-X' del modal de Configuración
-function aplicarVisibilidadSecciones(){
-  if(!S.secciones) return;
-  const tabIndices = {principal:0, servicios:1, extras:2, tdc:3, msi:4, deudas:5, otros:6, ahorro:7};
-  const mTabs = document.querySelectorAll('.tab');
-
-  Object.keys(S.secciones).forEach(key => {
-    const visible = S.secciones[key] !== false;
-    // Sidebar tab
-    document.querySelectorAll(`.sb-tab[data-tab="${key}"]`).forEach(el => {
-      el.style.display = visible ? '' : 'none';
-    });
-    // Mobile tab
-    const idx = tabIndices[key];
-    if(idx != null && mTabs[idx]) mTabs[idx].style.display = visible ? '' : 'none';
-    // Filas main (data-section)
-    document.querySelectorAll(`[data-section="${key}"]`).forEach(el => {
-      el.style.display = visible ? '' : 'none';
-    });
-  });
-
-  // Sincronizar los checkboxes del modal de Configuración con los valores actuales
-  // Esto asegura que cuando el usuario abra Config, vea el estado correcto
-  const cfgChecks = ['servicios','extras','tdc','msi','deudas','otros','ahorro'];
-  cfgChecks.forEach(key => {
-    const chk = document.getElementById('sec-' + key);
-    if(chk) chk.checked = S.secciones[key] !== false;
-  });
-}
-
-// Lanzar onboarding si es primera vez. Se ejecuta DESPUÉS de cargarPerfilDesdeDB.
-async function mostrarOnboardingSiEsNecesario(){
+// Lanzar onboarding si es primera vez. Confía en S.onboardingDone que viene de
+// loadFromSupabase → tabla `config`. La BD es la única fuente de verdad.
+function mostrarOnboardingSiEsNecesario(){
   if(!S) return;
-
-  // Consultar la BD como fuente de verdad (no confiar en localStorage entre usuarios)
-  if(typeof UID !== 'undefined' && UID){
-    try {
-      const {data} = await supa.from('perfiles').select('onboarding_done').eq('user_id', UID).maybeSingle();
-      if(data && data.onboarding_done === true){
-        S.onboardingDone = true;
-        localStorage.setItem('onboarding_done_'+UID, '1');
-        return;
-      }
-    } catch(e){ console.warn('verificar onboarding en BD:', e); }
-  }
-
-  // Si la BD dice false (o no hay fila), mostrar el tutorial
-  // ignoramos localStorage en este punto porque no es de fiar entre usuarios distintos
-  S.onboardingDone = false;
+  if(S.onboardingDone === true) return;
   // Inicializar en paso 0 (sexo) y mostrar
   onbNext(0);
   openModal('m-onboard');
@@ -4600,7 +4463,10 @@ function generarNotificacionesVisibles(){
   const raw = generarNotificacionesRaw();
 
   // Agrupar pagos semanales (deuda/tanda) cuando sueldo es QUINCENAL.
-  // Regla: agrupar las que caen dentro del MISMO periodo quincenal del calendario.
+  // Regla: TODAS las semanales del mismo objeto (deuda/tanda) que caigan en
+  // la misma quincena se agrupan, AUNQUE sea solo 1. La fecha de vencimiento
+  // de la notificación es el FIN de la quincena (15 o último día del mes),
+  // que es cuando se acumula y debe pagarse al cobrar.
   let lista = raw;
   if(S.modo === 'QUINCENAL'){
     const grupos = {};
@@ -4609,37 +4475,44 @@ function generarNotificacionesVisibles(){
       const esSemanal = (n.tipo === 'deuda_pago' && n.freq === 'SEMANAL')
                      || (n.tipo === 'tanda_pago');
       if(!esSemanal){ noAgrupables.push(n); return; }
-      // Encontrar inicio de quincena (1 o 16) que contiene n.fecha
+      // Encontrar inicio Y fin de quincena que contiene n.fecha
       const f = n.fecha;
+      const y = f.getFullYear(), m = f.getMonth();
+      const finMes = new Date(y, m+1, 0).getDate();
       const quincIni = f.getDate() <= 15
-        ? new Date(f.getFullYear(), f.getMonth(), 1)
-        : new Date(f.getFullYear(), f.getMonth(), 16);
+        ? new Date(y, m, 1)
+        : new Date(y, m, 16);
+      const quincFin = f.getDate() <= 15
+        ? new Date(y, m, 15)
+        : new Date(y, m, finMes);
       quincIni.setHours(0,0,0,0);
+      quincFin.setHours(0,0,0,0);
       const grupoKey = `${n.tipo === 'tanda_pago' ? 'tanda' : 'deuda'}|${n.deudaId}|${_isoDate(quincIni)}`;
-      if(!grupos[grupoKey]) grupos[grupoKey] = { items: [], grupoKey, fechaPrimera: n.fecha, deudaId: n.deudaId, tipo: n.tipo };
+      if(!grupos[grupoKey]){
+        grupos[grupoKey] = {
+          items: [], grupoKey,
+          fechaCierre: quincFin,
+          deudaId: n.deudaId, tipo: n.tipo
+        };
+      }
       grupos[grupoKey].items.push(n);
-      if(n.fecha < grupos[grupoKey].fechaPrimera) grupos[grupoKey].fechaPrimera = n.fecha;
     });
 
-    // Convertir grupos en notificaciones (si tienen >1 item, es agrupada)
+    // Convertir TODOS los grupos en notificaciones agrupadas (incluso 1 solo item)
     Object.values(grupos).forEach(g => {
-      if(g.items.length === 1){
-        noAgrupables.push(g.items[0]);
-        return;
-      }
-      // Agrupada: monto = suma, título igual, sub = "Plazos N,M..."
       g.items.sort((a,b) => a.fecha - b.fecha);
       const primero = g.items[0];
       const nums = g.items.map(it => it.plazoNum).join(', ');
       const monto = g.items.reduce((a,b) => a + b.monto, 0);
       const isTanda = g.tipo === 'tanda_pago';
+      const labelTipo = isTanda ? (g.items.length>1 ? 'Números' : 'Número') : (g.items.length>1 ? 'Plazos' : 'Plazo');
       noAgrupables.push({
         key: `grupo|${g.grupoKey}`,
         tipo: isTanda ? 'tanda_grupo' : 'deuda_grupo',
         refId: g.deudaId,
-        fecha: g.fechaPrimera,
+        fecha: g.fechaCierre, // FIN de la quincena = fecha límite
         titulo: primero.titulo,
-        sub: `${isTanda ? 'Números' : 'Plazos'} ${nums}`,
+        sub: `${labelTipo} ${nums}`,
         monto,
         plazos: g.items.map(it => it.plazoNum),
         items: g.items
@@ -4763,14 +4636,16 @@ function renderNotificaciones(){
 function actualizarBadgeNotif(){
   generarNotificacionesVisibles(); // refresca cache
   const n = contarNotifBadge();
-  const badge = id('notif-badge');
-  if(!badge) return;
-  if(n > 0){
-    badge.textContent = n;
-    badge.style.display = 'flex';
-  } else {
-    badge.style.display = 'none';
-  }
+  ['notif-badge', 'notif-badge-sb'].forEach(bid => {
+    const badge = id(bid);
+    if(!badge) return;
+    if(n > 0){
+      badge.textContent = n;
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  });
 }
 
 // Acciones

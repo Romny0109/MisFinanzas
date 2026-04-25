@@ -68,7 +68,11 @@ async function loadFromSupabase(silencioso=false){
       if(c.sueldo_por_periodo) try { S.sueldoPorPeriodo = JSON.parse(c.sueldo_por_periodo); } catch(e){}
       if(c.otros_gastos) try { S.otrosGastos = JSON.parse(c.otros_gastos); } catch(e){}
       if(c.sexo) S.sexo = c.sexo;
-      if(c.onboarding_done) S.onboardingDone = !!c.onboarding_done;
+      // IMPORTANTE: asignar SIEMPRE (incluso si viene false). La BD es la verdad.
+      S.onboardingDone = c.onboarding_done === true;
+    } else {
+      // No hay fila en config para este usuario → es nuevo, no completó onboarding
+      S.onboardingDone = false;
     }
     if(error) console.warn('config load error:', error.message);
   } catch(e){ console.warn('config load fail:', e); }
@@ -438,9 +442,17 @@ function openModal(mid){
   const fi = document.querySelector(`#${mid} input[type=date]`);
   if(fi && !fi.value) fi.value = todayStr();
 }
-function closeModal(mid){ document.getElementById(mid).classList.remove('open') }
+function closeModal(mid){
+  // Onboarding NO se puede cerrar manualmente — solo terminándolo con el botón final
+  if(mid === 'm-onboard' && S && !S.onboardingDone) return;
+  document.getElementById(mid).classList.remove('open');
+}
 document.querySelectorAll('.overlay').forEach(o=>{
-  o.addEventListener('click',e=>{ if(e.target===o) o.classList.remove('open') });
+  o.addEventListener('click',e=>{
+    // Onboarding bloquea el click-fuera-cierra
+    if(o.id === 'm-onboard' && S && !S.onboardingDone) return;
+    if(e.target===o) o.classList.remove('open');
+  });
 });
 function todayStr(){ return new Date().toISOString().split('T')[0] }
 
@@ -4223,21 +4235,9 @@ function mostrarOnboardingSiEsNecesario(){
   openModal('m-onboard');
 }
 
-// Hook: después de que init termine de cargar, llamar a mostrarOnboardingSiEsNecesario
-// init() es async y está al final; no existe aún en este file. Esperamos con un intervalo.
-(function hookOnboarding(){
-  let tries = 0;
-  const iv = setInterval(() => {
-    tries++;
-    if(typeof UID !== 'undefined' && UID && typeof S !== 'undefined' && S && PERIODOS && PERIODOS.length){
-      clearInterval(iv);
-      // Pequeño delay para asegurar que el DOM y los renders iniciales estén listos
-      setTimeout(() => mostrarOnboardingSiEsNecesario(), 800);
-    } else if(tries > 150){  // 15 segundos máx
-      clearInterval(iv);
-    }
-  }, 100);
-})();
+// Hook viejo basado en intervalo: deshabilitado.
+// Ahora mostrarOnboardingSiEsNecesario se llama directamente desde
+// cargarDatosUsuario en auth.js, garantizando que ya cargó la config de Supabase.
 
 // Persistir flag al cerrar manualmente el onboarding (escape / fuera de modal)
 // y al completarlo

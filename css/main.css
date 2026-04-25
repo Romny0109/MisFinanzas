@@ -717,3 +717,53 @@ select.fi{cursor:pointer}
   text-align:center;padding:32px 16px;color:var(--text2);font-size:13px;
   border:1px dashed var(--border);border-radius:10px
 }
+
+/* ═══ ONBOARDING FULLSCREEN ═══ */
+/* Cuando el modal es de onboarding, ocupa toda la pantalla, no es bottomsheet */
+#m-onboard{
+  align-items:stretch !important;
+  justify-content:stretch !important;
+  background:var(--bg) !important;
+  backdrop-filter:none !important;
+}
+#m-onboard .modal{
+  border-radius:0 !important;
+  max-width:none !important;
+  width:100% !important;
+  height:100dvh !important;
+  max-height:100dvh !important;
+  transform:none !important;
+  padding:32px 20px 20px !important;
+  margin:0 !important;
+  background:var(--bg) !important;
+  border:none !important;
+  display:flex !important;
+  flex-direction:column !important;
+}
+/* Centrar contenido en desktop */
+@media (min-width:1080px){
+  #m-onboard .modal{
+    max-width:560px !important;
+    margin:0 auto !important;
+    padding:48px 32px !important;
+    border-left:1px solid var(--border) !important;
+    border-right:1px solid var(--border) !important;
+  }
+}
+/* Esconder el handle de bottomsheet en onboarding */
+#m-onboard .m-handle{display:none !important}
+/* Ocultar X de cierre si existe */
+#m-onboard .modal-close{display:none !important}
+
+/* Scroll interno en onboarding fullscreen */
+#m-onboard .modal > [id^="onb-step-"]{
+  flex:1;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  padding-bottom:8px;
+}
+#m-onboard .m-title{
+  font-size:22px !important;
+  margin-bottom:20px !important;
+  text-align:center;
+}

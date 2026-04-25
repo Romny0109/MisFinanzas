@@ -149,6 +149,11 @@ async function cargarDatosUsuario(){
   S.ultimoPeriodoLabel = periodoActualLabel;
   localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
   window.renderAll();
+  // Mostrar onboarding si es necesario (después de cargar todo desde Supabase)
+  // Importante: aquí ya tenemos el valor REAL de S.onboardingDone desde la BD
+  if(typeof mostrarOnboardingSiEsNecesario === 'function'){
+    setTimeout(() => mostrarOnboardingSiEsNecesario(), 200);
+  }
 }
 
 // ── PANTALLA DE LOGIN ─────────────────────────────────────

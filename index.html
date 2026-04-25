@@ -540,10 +540,26 @@
 <div class="overlay" id="m-onboard">
   <div class="modal" style="max-height:85vh;overflow-y:auto">
     <div class="m-handle"></div>
-    <div class="m-title" id="onb-title">¡Bienvenid@!</div>
+    <div class="m-title" id="onb-title">¡Hola!</div>
+
+    <!-- Paso 0: Sexo -->
+    <div id="onb-step-0">
+      <div style="font-size:15px;color:var(--text);margin-bottom:14px;line-height:1.5">
+        ¡Hola! Antes de empezar, cuéntanos un poco sobre ti.
+      </div>
+      <div class="fl" style="margin-bottom:6px">¿Cuál es tu sexo?</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+        <button class="btn onb-sexo" data-sexo="M" onclick="onbSexo('M')">Masculino</button>
+        <button class="btn onb-sexo" data-sexo="F" onclick="onbSexo('F')">Femenino</button>
+        <button class="btn onb-sexo" data-sexo="X" onclick="onbSexo('X')">Prefiero no decirlo</button>
+      </div>
+      <div class="m-footer">
+        <button class="btn btn-p" style="flex:1" onclick="onbNext(1)">Siguiente →</button>
+      </div>
+    </div>
 
     <!-- Paso 1: Bienvenida -->
-    <div id="onb-step-1">
+    <div id="onb-step-1" style="display:none">
       <div style="font-size:15px;color:var(--text);margin-bottom:10px;line-height:1.5">
         <span id="onb-hola">¡Bienvenid@</span> a tu nueva app para el control financiero personal! 🎉
       </div>
@@ -551,7 +567,8 @@
         A continuación vamos a configurar tus primeros ajustes.
       </div>
       <div class="m-footer">
-        <button class="btn btn-p" style="flex:1" onclick="onbNext(2)">Empezar →</button>
+        <button class="btn btn-g" style="flex:1" onclick="onbNext(0)">← Atrás</button>
+        <button class="btn btn-p" style="flex:2" onclick="onbNext(2)">Empezar →</button>
       </div>
     </div>
 
@@ -729,12 +746,14 @@
   <div class="modal">
     <div class="m-handle"></div>
     <div class="m-title">Nuevo servicio</div>
-    <div class="frow"><div class="fg"><div class="fl">Concepto</div><input class="fi" id="svc-c" placeholder="Ej: Internet, Luz, Agua"></div></div>
+    <div class="frow"><div class="fg"><div class="fl">Concepto</div><input class="fi" id="svc-c" placeholder="Ej: Internet, Luz, Pasajes"></div></div>
     <div class="frow">
       <div class="fg"><div class="fl">Monto del pago $</div><input class="fi" type="number" id="svc-m" placeholder="350" inputmode="decimal"></div>
       <div class="fg"><div class="fl">Frecuencia</div>
         <select class="fi" id="svc-n" onchange="onSvcFreqChange()">
-          <option value="1">Mensual</option>
+          <option value="semanal">Semanal</option>
+          <option value="quincenal">Quincenal</option>
+          <option value="1" selected>Mensual</option>
           <option value="2">Bimestral</option>
           <option value="3">Trimestral</option>
           <option value="6">Semestral</option>
@@ -742,9 +761,20 @@
         </select>
       </div>
     </div>
+    <!-- Día de la semana (solo servicios SEMANAL) -->
+    <div class="frow" id="svc-diasem-wrap" style="display:none">
+      <div class="fg"><div class="fl">Día de pago (semana)</div>
+        <select class="fi" id="svc-diasem">
+          <option>Lunes</option><option>Martes</option><option>Miércoles</option>
+          <option>Jueves</option><option>Viernes</option><option>Sábado</option><option>Domingo</option>
+        </select>
+      </div>
+    </div>
+    <!-- Fecha próximo pago (bimestral+) -->
     <div class="frow" id="svc-prox-wrap" style="display:none">
       <div class="fg"><div class="fl">Fecha del próximo pago</div><input class="fi" type="date" id="svc-prox"></div>
     </div>
+    <!-- Día del mes (mensual y quincenal) -->
     <div class="frow" id="svc-dia-wrap"><div class="fg"><div class="fl">Día de pago (del mes)</div><input class="fi" type="number" id="svc-dia" placeholder="12" min="1" max="31" inputmode="decimal"></div></div>
     <div class="m-footer">
       <button class="btn btn-g" style="flex:1" onclick="closeModal('m-svc')">Cancelar</button>
@@ -856,8 +886,8 @@
       </div>
       <div class="frow"><div class="fg"><div class="fl">Concepto</div><input class="fi" id="deu-c" placeholder="Ej: Préstamo personal"></div></div>
       <div class="frow">
-        <div class="fg"><div class="fl">Monto total $</div><input class="fi" type="number" id="deu-m" inputmode="decimal"></div>
-        <div class="fg"><div class="fl">Plazo (pagos)</div><input class="fi" type="number" id="deu-pl" max="60" inputmode="decimal"></div>
+        <div class="fg"><div class="fl">Monto total $</div><input class="fi" type="number" id="deu-m" inputmode="decimal" oninput="calcDeuInfo()"></div>
+        <div class="fg"><div class="fl">Plazo (pagos)</div><input class="fi" type="number" id="deu-pl" max="60" inputmode="decimal" oninput="calcDeuInfo()"></div>
       </div>
       <div class="frow">
         <div class="fg"><div class="fl">Fecha adquisición</div><input class="fi" type="date" id="deu-adq"></div>

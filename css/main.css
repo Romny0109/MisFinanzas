@@ -679,3 +679,10 @@ select.fi{cursor:pointer}
 }
 .onb-sec input[type=checkbox]{width:18px;height:18px;cursor:pointer}
 .onb-sec-desc{color:var(--text2);font-size:12px;margin-left:4px}
+.onb-sexo{
+  background:var(--card);border:1px solid var(--border);color:var(--text);
+  padding:12px 14px;border-radius:10px;font-size:14px;cursor:pointer;transition:all .15s;
+  text-align:left;width:100%
+}
+.onb-sexo:hover{background:var(--card2)}
+.onb-sexo.sel{background:var(--blue);color:#fff;border-color:var(--blue)}

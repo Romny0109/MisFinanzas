@@ -78,7 +78,9 @@ async function loadFromSupabase(silencioso=false){
       id:r.id, concepto:r.concepto, monto:parseFloat(r.monto),
       cadacuanto:r.cadacuanto||1, fecha:r.fecha||'',
       diaPago:r.dia_pago||1, fechaAgregado:r.fecha||'',
-      proxPago:r.prox_pago||''
+      proxPago:r.prox_pago||'',
+      freqSvc: r.freq_svc || 'MENSUAL',
+      diaSemana: r.dia_semana || ''
     }));
   } catch(e){ console.warn('servicios load fail:', e); }
 
@@ -197,7 +199,9 @@ async function saveSvc(s){
     const {data} = await supa.from('servicios').insert({
       user_id: UID, concepto: s.concepto, monto: s.monto,
       cadacuanto: s.cadacuanto||1, fecha: s.fechaAgregado||'',
-      dia_pago: s.diaPago||1, prox_pago: s.proxPago||''
+      dia_pago: s.diaPago||1, prox_pago: s.proxPago||'',
+      freq_svc: s.freqSvc || 'MENSUAL',
+      dia_semana: s.diaSemana || ''
     }).select().single();
     if(data) s.id = data.id;
   } catch(e){ console.warn('saveSvc:', e); }
@@ -761,14 +765,21 @@ function contarDiasCobro(fechaLimiteStr, desdeStr=null){
 function cicloActualTarjeta(tar, refFecha=null){
   const ref = refFecha ? new Date(refFecha) : new Date();
   ref.setHours(0,0,0,0);
-  let corteIni = new Date(ref.getFullYear(), ref.getMonth(), tar.corte);
-  if(corteIni > ref) corteIni = new Date(ref.getFullYear(), ref.getMonth()-1, tar.corte);
-  let siguienteCorte = new Date(corteIni.getFullYear(), corteIni.getMonth()+1, tar.corte);
+  // Helper: fecha segura para día del mes (ajusta al último día si no existe)
+  function fechaSegura(y, m, dia){
+    const maxD = new Date(y, m+1, 0).getDate();
+    const d = new Date(y, m, Math.min(dia, maxD));
+    d.setHours(0,0,0,0);
+    return d;
+  }
+  let corteIni = fechaSegura(ref.getFullYear(), ref.getMonth(), tar.corte);
+  if(corteIni > ref) corteIni = fechaSegura(ref.getFullYear(), ref.getMonth()-1, tar.corte);
+  let siguienteCorte = fechaSegura(corteIni.getFullYear(), corteIni.getMonth()+1, tar.corte);
   let corteFin = new Date(siguienteCorte); corteFin.setDate(corteFin.getDate()-1);
   let limite;
   if(tar.modo === 'DÍA DEL MES'){
-    limite = new Date(siguienteCorte.getFullYear(), siguienteCorte.getMonth(), tar.pago);
-    if(limite <= siguienteCorte) limite = new Date(siguienteCorte.getFullYear(), siguienteCorte.getMonth()+1, tar.pago);
+    limite = fechaSegura(siguienteCorte.getFullYear(), siguienteCorte.getMonth(), tar.pago);
+    if(limite <= siguienteCorte) limite = fechaSegura(siguienteCorte.getFullYear(), siguienteCorte.getMonth()+1, tar.pago);
   } else {
     limite = new Date(siguienteCorte); limite.setDate(siguienteCorte.getDate()+(tar.pago||20));
   }
@@ -782,12 +793,18 @@ function cicloActualTarjeta(tar, refFecha=null){
 // Ciclo VISIBLE = ciclo anterior al activo en tiempo real (siempre HOY)
 function cicloVisibleTarjeta(tar){
   const cicloActivo = cicloActualTarjeta(tar); // HOY
-  const corteIniVisible = new Date(cicloActivo.corteIni.getFullYear(), cicloActivo.corteIni.getMonth()-1, tar.corte);
+  function fechaSegura(y, m, dia){
+    const maxD = new Date(y, m+1, 0).getDate();
+    const d = new Date(y, m, Math.min(dia, maxD));
+    d.setHours(0,0,0,0);
+    return d;
+  }
+  const corteIniVisible = fechaSegura(cicloActivo.corteIni.getFullYear(), cicloActivo.corteIni.getMonth()-1, tar.corte);
   let corteFin = new Date(cicloActivo.corteIni); corteFin.setDate(corteFin.getDate()-1);
   let limiteVisible;
   if(tar.modo === 'DÍA DEL MES'){
-    limiteVisible = new Date(cicloActivo.corteIni.getFullYear(), cicloActivo.corteIni.getMonth(), tar.pago);
-    if(limiteVisible <= cicloActivo.corteIni) limiteVisible = new Date(cicloActivo.corteIni.getFullYear(), cicloActivo.corteIni.getMonth()+1, tar.pago);
+    limiteVisible = fechaSegura(cicloActivo.corteIni.getFullYear(), cicloActivo.corteIni.getMonth(), tar.pago);
+    if(limiteVisible <= cicloActivo.corteIni) limiteVisible = fechaSegura(cicloActivo.corteIni.getFullYear(), cicloActivo.corteIni.getMonth()+1, tar.pago);
   } else {
     limiteVisible = new Date(cicloActivo.corteIni); limiteVisible.setDate(cicloActivo.corteIni.getDate()+(tar.pago||20));
   }
@@ -1119,9 +1136,13 @@ function _calcDeuMensualOriginal(d){
   function getNthFechaPago(n){
     if(d.freq === 'MENSUAL'){
       const diaPago = fIni.getDate();
-      const f = new Date(fIni.getFullYear(), fIni.getMonth()+n, diaPago);
-      const maxDia = new Date(f.getFullYear(), f.getMonth()+1, 0).getDate();
-      if(f.getDate() !== diaPago && diaPago <= 31) f.setDate(Math.min(diaPago, maxDia));
+      const targetYear = fIni.getFullYear();
+      const targetMonth = fIni.getMonth() + n;
+      // Calcular primero el máximo día del mes destino (evita el desborde de JS)
+      const maxDia = new Date(targetYear, targetMonth+1, 0).getDate();
+      const diaFinal = Math.min(diaPago, maxDia);
+      const f = new Date(targetYear, targetMonth, diaFinal);
+      f.setHours(0,0,0,0);
       return f;
     } else if(d.freq === 'QUINCENAL'){
       let y = fIni.getFullYear(), m = fIni.getMonth();
@@ -1262,6 +1283,152 @@ function movPerteneceAlCicloVisible(tar, fechaMov){
 
 // Validar fecha de movimiento: debe estar dentro del ciclo visible
 // ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// calcSvcSemanal — Servicio semanal (ej: pasajes L-V)
+// ═══════════════════════════════════════════════════════
+// Basado en día de la semana (Lunes, Martes, etc.)
+// Sueldo QUINCENAL: acumula las veces que cae ese día en el periodo
+// Sueldo SEMANAL:   regla de anticipación (pFin, pFin+7]
+function calcSvcSemanal(s, pIni, pFin){
+  const diasSem = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+  const diaIdx = diasSem.indexOf(s.diaSemana || 'Lunes');
+  if(diaIdx < 0) return null;
+
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const fAgre = s.fechaAgregado ? new Date(s.fechaAgregado+'T12:00:00') : new Date(hoy);
+  fAgre.setHours(0,0,0,0);
+
+  // Base: el MAX entre pIni y fechaAgregado (no cobrar antes de agregar el servicio)
+  const base = fAgre > pIni ? fAgre : pIni;
+
+  // Encontrar todas las fechas del día de la semana dentro de [base, pFin]
+  // + para modo SEMANAL, rango extendido (pFin, pFin+7]
+  const fechasEnPeriodo = [];
+  const cursor = new Date(base);
+  // Avanzar hasta el primer día-de-semana >= base
+  while(cursor.getDay() !== diaIdx) cursor.setDate(cursor.getDate()+1);
+
+  const rangoMax = new Date(pFin);
+  if(S.modo === 'SEMANAL'){
+    rangoMax.setDate(rangoMax.getDate()+7);
+  }
+
+  while(cursor <= rangoMax){
+    const cur = new Date(cursor); cur.setHours(0,0,0,0);
+    if(S.modo === 'QUINCENAL'){
+      if(cur >= pIni && cur <= pFin && cur >= fAgre) fechasEnPeriodo.push(cur);
+    } else {
+      // SEMANAL: anticipación (pFin, pFin+7]
+      if(cur > pFin && cur <= rangoMax && cur >= fAgre) fechasEnPeriodo.push(cur);
+    }
+    cursor.setDate(cursor.getDate()+7);
+  }
+
+  if(fechasEnPeriodo.length === 0) return null;
+
+  const pagoPeriodo = fechasEnPeriodo.length * s.monto;
+  return {
+    pagoTotal: s.monto,
+    pagoQuincena: pagoPeriodo,
+    nTotal: fechasEnPeriodo.length,
+    quincenaActual: 1,
+    proxPago: fechasEnPeriodo[0],
+    _esSemanal: true,
+    _count: fechasEnPeriodo.length
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+// calcSvcQuincenal — Servicio quincenal (15 y último del mes)
+// ═══════════════════════════════════════════════════════
+// Sueldo QUINCENAL: 1 pago por periodo (siempre coincide)
+// Sueldo SEMANAL:   divide entre los días de cobro que caen entre HOY/quincena
+//                   anterior y la fecha del pago
+function calcSvcQuincenal(s, pIni, pFin){
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const fAgre = s.fechaAgregado ? new Date(s.fechaAgregado+'T12:00:00') : new Date(hoy);
+  fAgre.setHours(0,0,0,0);
+
+  // Generar fechas quincenales (15 y último del mes) a partir de fAgre
+  // hasta unos meses adelante
+  const fechasPago = [];
+  let y = fAgre.getFullYear(), m = fAgre.getMonth();
+  let half = fAgre.getDate() <= 15 ? 1 : 2;
+  for(let i=0; i<60; i++){
+    const finMes = new Date(y, m+1, 0).getDate();
+    const f = half === 1 ? new Date(y, m, 15) : new Date(y, m, finMes);
+    f.setHours(0,0,0,0);
+    if(f >= fAgre) fechasPago.push(f);
+    half++; if(half>2){ half=1; m++; if(m>11){m=0; y++;} }
+    if(fechasPago.length > 30) break;
+  }
+
+  // Buscar qué fecha quincenal cae en el periodo actual
+  if(S.modo === 'QUINCENAL'){
+    const f = fechasPago.find(d => d >= pIni && d <= pFin);
+    if(!f) return null;
+    return {
+      pagoTotal: s.monto,
+      pagoQuincena: s.monto,
+      nTotal: 1,
+      quincenaActual: 1,
+      proxPago: f,
+      _esQuincenal: true
+    };
+  }
+
+  // Sueldo SEMANAL: dividir entre días de cobro disponibles
+  function diasCobroEnRango(ini, fin){
+    if(ini > fin) return [];
+    const dias = [];
+    for(let k=0; k<PERIODOS.length; k++){
+      const f = new Date(PERIODOS[k].fin); f.setHours(0,0,0,0);
+      if(f >= ini && f <= fin) dias.push(f);
+    }
+    return dias;
+  }
+
+  // Para cada fecha de pago, definir la ventana de cobro:
+  //   inicioSeg = max(HOY, fechaPago[n-1] + 1) ... o HOY si es primera vez
+  // Buscar el primer pago activo cuya ventana incluya el periodo actual.
+  let plazoActivo = null;
+  for(let i=0; i<fechasPago.length; i++){
+    const fechaPago = fechasPago[i];
+    let inicioSeg;
+    if(i === 0){
+      inicioSeg = new Date(Math.max(hoy.getTime(), fAgre.getTime()));
+    } else {
+      inicioSeg = new Date(fechasPago[i-1]);
+      inicioSeg.setDate(inicioSeg.getDate()+1);
+    }
+    inicioSeg.setHours(0,0,0,0);
+    if(fechaPago < pIni) continue;
+    if(inicioSeg > fechaPago) continue;
+    const diasCobro = diasCobroEnRango(inicioSeg, fechaPago);
+    if(diasCobro.length === 0) continue;
+    const enActual = diasCobro.some(f => f >= pIni && f <= pFin);
+    if(enActual){
+      plazoActivo = { fechaPago, diasCobro };
+      break;
+    }
+  }
+
+  if(!plazoActivo) return null;
+  const semanasTotales = plazoActivo.diasCobro.length;
+  const idxActual = plazoActivo.diasCobro.findIndex(f => f >= pIni && f <= pFin);
+  const semanaActual = idxActual + 1;
+  const pagoPeriodo = Math.round((s.monto / semanasTotales) * 100) / 100;
+  return {
+    pagoTotal: s.monto,
+    pagoQuincena: pagoPeriodo,
+    nTotal: semanasTotales,
+    quincenaActual: semanaActual,
+    proxPago: plazoActivo.fechaPago,
+    _esQuincenal: true
+  };
+}
+
+// ═══════════════════════════════════════════════════════
 // calcSvcEnPeriodo — Servicios con quincenas, como deudas pero sin plazo
 // ═══════════════════════════════════════════════════════
 function calcSvcEnPeriodo(s){
@@ -1269,6 +1436,14 @@ function calcSvcEnPeriodo(s){
   if(!p) return null;
   const pIni = new Date(p.ini); pIni.setHours(0,0,0,0);
   const pFin = new Date(p.fin); pFin.setHours(0,0,0,0);
+
+  // ── NUEVO: Servicios SEMANAL y QUINCENAL ──
+  if(s.freqSvc === 'SEMANAL'){
+    return calcSvcSemanal(s, pIni, pFin);
+  }
+  if(s.freqSvc === 'QUINCENAL'){
+    return calcSvcQuincenal(s, pIni, pFin);
+  }
 
   // Legacy: servicios sin diaPago usan el cálculo viejo
   if(!s.diaPago){
@@ -1282,14 +1457,27 @@ function calcSvcEnPeriodo(s){
   fAgre.setHours(0,0,0,0);
 
   function getNextPayDate(from, offset){
-    let d = new Date(from.getFullYear(), from.getMonth(), diaPago);
-    if(d < from) d = new Date(from.getFullYear(), from.getMonth()+1, diaPago);
-    const maxD = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
-    if(diaPago > maxD) d.setDate(maxD);
+    // Fecha candidata: mismo mes de 'from', día = diaPago (ajustado al max del mes)
+    const y = from.getFullYear(), m = from.getMonth();
+    const maxMesActual = new Date(y, m+1, 0).getDate();
+    const diaActual = Math.min(diaPago, maxMesActual);
+    let d = new Date(y, m, diaActual);
+    d.setHours(0,0,0,0);
+    if(d < from){
+      // Mover al siguiente mes (con ajuste al max del mes siguiente)
+      const maxSig = new Date(y, m+2, 0).getDate();
+      const diaSig = Math.min(diaPago, maxSig);
+      d = new Date(y, m+1, diaSig);
+      d.setHours(0,0,0,0);
+    }
     if(offset > 0){
-      d = new Date(d.getFullYear(), d.getMonth() + offset * cadaMeses, diaPago);
-      const maxD2 = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
-      if(diaPago > maxD2) d.setDate(maxD2);
+      // Avanzar N ciclos, recalculando el max del mes destino cada vez
+      const dY = d.getFullYear(), dM = d.getMonth();
+      const targetM = dM + offset * cadaMeses;
+      const maxTarget = new Date(dY, targetM+1, 0).getDate();
+      const diaTarget = Math.min(diaPago, maxTarget);
+      d = new Date(dY, targetM, diaTarget);
+      d.setHours(0,0,0,0);
     }
     return d;
   }
@@ -1435,6 +1623,11 @@ function renderPrincipal(){
   id('tot-dedu').textContent = '-'+mxn(totalDedu);
   id('disponible').textContent = (disp<0?'-':'')+mxn(disp);
   if(id('disponible-m')) id('disponible-m').textContent = (disp<0?'-':'')+mxn(disp);
+  // REQ 4: pintar en rojo cuando el disponible del periodo es negativo
+  const dispEl = id('disponible');
+  if(dispEl) dispEl.style.color = disp<0 ? 'var(--red)' : '';
+  const dispElM = id('disponible-m');
+  if(dispElM) dispElM.style.color = disp<0 ? 'var(--red)' : '';
   if(id('disp-ahorro')) id('disp-ahorro').textContent = mxn(aho);
 
   // Desglose de periodo guardado
@@ -1553,10 +1746,11 @@ function renderPrincipal(){
 
   id('m-mes-g').textContent = mxn(ganMes);
   id('m-mes-r').textContent = mxn(gasMes);
-  id('m-disp').textContent = mxn(disp);
+  // REQ 4: Disponible nunca muestra negativo (si disp<0 → 0). Acumulado año igual.
+  id('m-disp').textContent = mxn(Math.max(0, disp));
   id('m-ano-g').textContent = mxn(ganAnio);
   id('m-ano-r').textContent = mxn(gasAnio);
-  id('m-acum').textContent = mxn(ganAnio-gasAnio);
+  id('m-acum').textContent = mxn(Math.max(0, ganAnio-gasAnio));
 
   // Ahorro acumulado = solo periodos cerrados del historial
   const ahorroAcum = S.historial.reduce((a,h)=>a+(h.ahorro||0),0);
@@ -2077,40 +2271,74 @@ function guardarConfig(){
 
 // SERVICIOS
 function onSvcFreqChange(){
-  const n = parseInt(id('svc-n').value)||1;
-  // Mensual: solo día de pago. Bimestral+: solo fecha del próximo pago
-  id('svc-dia-wrap').style.display = n === 1 ? 'block' : 'none';
-  id('svc-prox-wrap').style.display = n > 1 ? 'block' : 'none';
+  const v = id('svc-n').value;
+  const wrapDia = id('svc-dia-wrap');
+  const wrapProx = id('svc-prox-wrap');
+  const wrapSem = id('svc-diasem-wrap');
+
+  if(v === 'semanal'){
+    if(wrapSem) wrapSem.style.display = 'block';
+    if(wrapDia) wrapDia.style.display = 'none';
+    if(wrapProx) wrapProx.style.display = 'none';
+    id('svc-dia').value = '';
+    id('svc-prox').value = '';
+    return;
+  }
+  if(v === 'quincenal'){
+    if(wrapSem) wrapSem.style.display = 'none';
+    if(wrapDia) wrapDia.style.display = 'none';
+    if(wrapProx) wrapProx.style.display = 'none';
+    id('svc-dia').value = '';
+    id('svc-prox').value = '';
+    return;
+  }
+  const n = parseInt(v)||1;
+  if(wrapSem) wrapSem.style.display = 'none';
+  wrapDia.style.display = n === 1 ? 'block' : 'none';
+  wrapProx.style.display = n > 1 ? 'block' : 'none';
   if(n === 1) id('svc-prox').value = '';
   if(n > 1) id('svc-dia').value = '';
 }
 
 async function guardarSvc(){
   const c=id('svc-c').value.trim(), m=parseFloat(id('svc-m').value)||0;
-  const n=parseInt(id('svc-n').value)||1;
-  const proxPago=id('svc-prox').value||'';
+  const v = id('svc-n').value;
   if(!c||!m){alert('Concepto y monto son requeridos');return;}
-  
-  let dia;
-  if(n === 1){
-    // Mensual: usa el campo de día
-    dia=parseInt(id('svc-dia').value)||0;
-    if(!dia||dia<1||dia>31){alert('Día de pago requerido (1-31)');return;}
-  } else {
-    // Bimestral+: saca el día de la fecha del calendario
-    if(!proxPago){alert('Indica la fecha del próximo pago');return;}
-    const proxDate = new Date(proxPago+'T12:00:00');
-    dia = proxDate.getDate();
-  }
-  
+
   const hoy = new Date(); hoy.setHours(0,0,0,0);
   const fechaAgregado = hoy.toISOString().split('T')[0];
-  const svc={concepto:c, monto:m, cadacuanto:n, diaPago:dia, fechaAgregado, proxPago};
+
+  let svc;
+  if(v === 'semanal'){
+    const diaSem = id('svc-diasem').value || 'Lunes';
+    svc = { concepto:c, monto:m, cadacuanto:0, diaPago:0, diaSemana: diaSem,
+            freqSvc:'SEMANAL', fechaAgregado, proxPago:'' };
+  } else if(v === 'quincenal'){
+    svc = { concepto:c, monto:m, cadacuanto:0, diaPago:0, diaSemana:'',
+            freqSvc:'QUINCENAL', fechaAgregado, proxPago:'' };
+  } else {
+    const n = parseInt(v)||1;
+    const proxPago = id('svc-prox').value || '';
+    let dia;
+    if(n === 1){
+      dia = parseInt(id('svc-dia').value)||0;
+      if(!dia||dia<1||dia>31){alert('Día de pago requerido (1-31)');return;}
+    } else {
+      if(!proxPago){alert('Indica la fecha del próximo pago');return;}
+      const proxDate = new Date(proxPago+'T12:00:00');
+      dia = proxDate.getDate();
+    }
+    svc = { concepto:c, monto:m, cadacuanto:n, diaPago:dia, diaSemana:'',
+            freqSvc:'MENSUAL', fechaAgregado, proxPago };
+  }
+
   S.servicios.push(svc);
   await saveSvc(svc);
   save();
   id('svc-c').value=''; id('svc-m').value=''; id('svc-n').value='1'; id('svc-dia').value='';
-  id('svc-prox').value=''; id('svc-prox-wrap').style.display='none'; id('svc-dia-wrap').style.display='block';
+  id('svc-prox').value=''; id('svc-prox-wrap').style.display='none';
+  id('svc-dia-wrap').style.display='block';
+  if(id('svc-diasem-wrap')) id('svc-diasem-wrap').style.display='none';
   closeModal('m-svc'); window.renderSvc(); renderPrincipal();
 }
 async function delSvc(i){
@@ -3648,6 +3876,35 @@ function syncTandaExtras(){
 })();
 
 // Patch: recuperar flags autoTanda/tandaId desde DB una vez que UID exista
+// Patch: cargar perfil desde DB para sincronizar entre dispositivos
+(async function cargarPerfilDesdeDB(){
+  const waitUID = () => new Promise(r => {
+    const t = setInterval(() => { if(typeof UID !== 'undefined' && UID){ clearInterval(t); r(); } }, 100);
+    setTimeout(() => { clearInterval(t); r(); }, 15000);
+  });
+  await waitUID();
+  if(typeof UID === 'undefined' || !UID) return;
+  try {
+    const {data} = await supa.from('perfiles').select('*').eq('user_id', UID).maybeSingle();
+    if(!data) return;
+    // Aplicar al estado S
+    if(data.sexo) S.sexo = data.sexo;
+    if(data.tema) S.tema = data.tema;
+    if(data.modo) S.modo = data.modo;
+    if(data.sueldo != null && !S.sueldo) S.sueldo = parseFloat(data.sueldo)||0;
+    if(data.sueldo_fijo != null) S.sueldoFijo = !!data.sueldo_fijo;
+    if(data.dia_cobro) S.diaCobro = data.dia_cobro;
+    if(data.secciones) S.secciones = Object.assign(S.secciones||{}, data.secciones);
+    if(data.onboarding_done){
+      S.onboardingDone = true;
+      localStorage.setItem('onboarding_done_'+UID, '1');
+    }
+    // Aplicar tema y visibilidad
+    if(typeof aplicarTema === 'function' && S.tema) aplicarTema(S.tema);
+    if(typeof aplicarVisibilidadSecciones === 'function') aplicarVisibilidadSecciones();
+  } catch(e){ console.warn('cargar perfil:', e); }
+})();
+
 (async function patchExtrasLoad(){
   const waitUID = () => new Promise(r => {
     const t = setInterval(() => { if(typeof UID !== 'undefined' && UID){ clearInterval(t); r(); } }, 100);
@@ -3681,6 +3938,7 @@ function syncTandaExtras(){
 // ═══════════════════════════════════════════════════════════════
 // Estado temporal durante el onboarding
 const ONB = {
+  sexo: null,       // 'M' | 'F' | 'X'
   theme: 'dark',
   modo: null,       // 'QUINCENAL' | 'SEMANAL'
   diaCobro: 'Miércoles',
@@ -3690,9 +3948,13 @@ const ONB = {
 };
 
 function onbNext(step){
-  for(let s=1; s<=5; s++){
+  for(let s=0; s<=5; s++){
     const el = id('onb-step-'+s);
     if(el) el.style.display = (s===step) ? 'block' : 'none';
+  }
+  // Al entrar al paso 1 (bienvenida), actualizar saludo según sexo
+  if(step === 1){
+    onbActualizarSaludo();
   }
   // Llegando al paso 4, actualizar label del periodo
   if(step === 4){
@@ -3705,6 +3967,34 @@ function onbNext(step){
       }
     } catch(e){}
   }
+}
+
+function onbSexo(s){
+  ONB.sexo = s;
+  document.querySelectorAll('.onb-sexo').forEach(b=>{
+    b.classList.toggle('sel', b.dataset.sexo === s);
+  });
+}
+
+// Actualiza el saludo según sexo elegido + nombre del usuario
+async function onbActualizarSaludo(){
+  let nombre = '';
+  try {
+    if(typeof supa !== 'undefined'){
+      const {data} = await supa.auth.getUser();
+      const u = data && data.user;
+      if(u){
+        nombre = u.user_metadata?.full_name || u.user_metadata?.name || (u.email||'').split('@')[0] || '';
+      }
+    }
+  } catch(e){}
+  let saludo;
+  if(ONB.sexo === 'M') saludo = 'Bienvenido';
+  else if(ONB.sexo === 'F') saludo = 'Bienvenida';
+  else saludo = 'Bienvenid@';
+  const nombreTxt = nombre ? (' '+nombre) : '';
+  const el = id('onb-hola');
+  if(el) el.textContent = `¡${saludo}${nombreTxt}!`;
 }
 
 function onbTheme(t){
@@ -3743,6 +4033,10 @@ async function onbFinish(){
   });
 
   // Validación mínima
+  if(!ONB.sexo){
+    alert('Selecciona tu sexo al inicio.');
+    onbNext(0); return;
+  }
   if(!ONB.modo){
     alert('Selecciona tu modo de sueldo (quincenal o semanal) antes de continuar.');
     onbNext(3); return;
@@ -3750,6 +4044,7 @@ async function onbFinish(){
 
   // Aplicar al estado global S
   try {
+    S.sexo = ONB.sexo;
     S.tema = ONB.theme;
     S.modo = ONB.modo;
     if(ONB.modo === 'SEMANAL') S.diaCobro = ONB.diaCobro;
@@ -3770,11 +4065,12 @@ async function onbFinish(){
     if(typeof save === 'function') save();
     localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
 
-    // Guardar en DB si hay columna (opcional, mejor esfuerzo)
+    // Guardar en DB si la tabla existe (requiere migracion-perfiles.sql)
     try {
       if(typeof UID !== 'undefined' && UID){
         await supa.from('perfiles').upsert({
           user_id: UID,
+          sexo: S.sexo,
           tema: S.tema,
           modo: S.modo,
           sueldo: S.sueldo,
@@ -3795,7 +4091,6 @@ async function onbFinish(){
   try {
     if(typeof aplicarTema === 'function') aplicarTema(S.tema);
     if(typeof renderPrincipal === 'function') renderPrincipal();
-    if(typeof renderAllSections === 'function') renderAllSections();
     if(window.renderDeu) window.renderDeu();
     if(window.renderExt) window.renderExt();
     if(window.renderSvc) window.renderSvc();
@@ -3841,22 +4136,8 @@ function mostrarOnboardingSiEsNecesario(){
     S.onboardingDone = true;
     return;
   }
-  // Saludo personalizado
-  try {
-    let nombre = '';
-    if(typeof supa !== 'undefined'){
-      supa.auth.getUser().then(({data})=>{
-        const u = data && data.user;
-        if(u){
-          nombre = u.user_metadata?.full_name || u.user_metadata?.name || (u.email||'').split('@')[0] || '';
-        }
-        const hola = nombre ? `¡Bienvenid@, ${nombre}` : '¡Bienvenid@';
-        const el = id('onb-hola'); if(el) el.textContent = hola;
-      }).catch(()=>{});
-    }
-  } catch(e){}
-  // Inicializar paso 1 y mostrar
-  onbNext(1);
+  // Inicializar en paso 0 (sexo) y mostrar
+  onbNext(0);
   openModal('m-onboard');
 }
 

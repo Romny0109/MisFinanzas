@@ -1238,6 +1238,7 @@ function _calcDeuMensualOriginal(d){
       pagoMensual: d.pago,
       pagoQuincena,
       limitePago,
+      fechaFinDeuda: getNthFechaPago(d.plazo - 1),
       liquidado: false
     };
   }
@@ -1795,30 +1796,84 @@ function freqLabel(n){
   const labels = {1:'mensual',2:'bimestral',3:'trimestral',6:'semestral',12:'anual'};
   return labels[n] || `cada ${n} meses`;
 }
+// Devuelve string con la fecha del próximo pago de un servicio, o '' si no aplica
+// regla "no se muestra próximo pago si caen varios eventos por periodo".
+// Si quieres el objeto Date crudo, usa calcProxPagoSvcDate(s).
 function calcProxPagoSvc(s){
-  if(!s.diaPago) return '';
-  // Usar el fin del periodo que estamos viendo como referencia
+  const r = calcProxPagoSvcDate(s);
+  if(!r) return '';
+  // Regla: si cae más de un evento en el periodo (semanal+sueldo quincenal),
+  // no se muestra próxima fecha (igual que deudas semanal+quincenal).
+  if(s.freqSvc === 'SEMANAL' && S.modo === 'QUINCENAL') return '';
+  return fmtTandaFecha(r);
+}
+
+// Devuelve la fecha (Date) del próximo pago de un servicio según el periodo
+// actual visible. Maneja MENSUAL, BIMESTRAL+, SEMANAL y QUINCENAL.
+function calcProxPagoSvcDate(s){
   const p = PERIODOS[S.periodoIdx];
-  const ref = p ? new Date(p.fin) : new Date();
-  ref.setHours(0,0,0,0);
+  const refFin = p ? new Date(p.fin) : new Date();
+  refFin.setHours(0,0,0,0);
+  const refIni = p ? new Date(p.ini) : new Date();
+  refIni.setHours(0,0,0,0);
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+
+  // Helper: fecha segura ajustada al último día del mes si excede
+  function fechaSegura(y, m, dia){
+    const maxD = new Date(y, m+1, 0).getDate();
+    const d = new Date(y, m, Math.min(dia, maxD));
+    d.setHours(0,0,0,0);
+    return d;
+  }
+
+  // ── SEMANAL: próximo día de la semana en el periodo o futuro ──
+  if(s.freqSvc === 'SEMANAL'){
+    const diasSem = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+    const diaIdx = diasSem.indexOf(s.diaSemana || 'Lunes');
+    if(diaIdx < 0) return null;
+    // Buscar el primer día de la semana >= max(refIni, hoy)
+    const desde = refIni > hoy ? new Date(refIni) : new Date(hoy);
+    const cur = new Date(desde);
+    while(cur.getDay() !== diaIdx) cur.setDate(cur.getDate()+1);
+    cur.setHours(0,0,0,0);
+    return cur;
+  }
+
+  // ── QUINCENAL: 15 y último día del mes ──
+  if(s.freqSvc === 'QUINCENAL'){
+    const desde = refIni > hoy ? new Date(refIni) : new Date(hoy);
+    desde.setHours(0,0,0,0);
+    let y = desde.getFullYear(), m = desde.getMonth();
+    let half = desde.getDate() <= 15 ? 1 : 2;
+    for(let i=0; i<10; i++){
+      const finMes = new Date(y, m+1, 0).getDate();
+      const f = half === 1 ? new Date(y, m, 15) : new Date(y, m, finMes);
+      f.setHours(0,0,0,0);
+      if(f >= desde) return f;
+      half++; if(half>2){ half=1; m++; if(m>11){m=0; y++;} }
+    }
+    return null;
+  }
+
+  // ── Legacy MENSUAL/Bimestral/etc ──
+  if(!s.diaPago) return null;
   const dia = s.diaPago;
   const cadaMeses = s.cadacuanto || 1;
   if(cadaMeses === 1){
-    // Mensual: próximo día X después del fin del periodo actual
-    let prox = new Date(ref.getFullYear(), ref.getMonth(), dia);
-    if(prox <= ref) prox = new Date(ref.getFullYear(), ref.getMonth()+1, dia);
-    const maxD = new Date(prox.getFullYear(), prox.getMonth()+1, 0).getDate();
-    if(dia > maxD) prox.setDate(maxD);
-    return prox.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'});
+    let prox = fechaSegura(refFin.getFullYear(), refFin.getMonth(), dia);
+    if(prox <= refFin) prox = fechaSegura(refFin.getFullYear(), refFin.getMonth()+1, dia);
+    return prox;
   } else {
     if(s.proxPago){
       let prox = new Date(s.proxPago+'T12:00:00'); prox.setHours(0,0,0,0);
-      while(prox <= ref){
-        prox = new Date(prox.getFullYear(), prox.getMonth()+cadaMeses, prox.getDate());
+      // Avanzar ciclos hasta superar refFin
+      while(prox <= refFin){
+        const newM = prox.getMonth() + cadaMeses;
+        prox = fechaSegura(prox.getFullYear(), newM, prox.getDate());
       }
-      return prox.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'});
+      return prox;
     }
-    return '';
+    return null;
   }
 }
 function renderSvc(){
@@ -1830,17 +1885,20 @@ function renderSvc(){
   }
   list.innerHTML = S.servicios.map((s,i)=>{
     const calc = calcSvcEnPeriodo(s);
-    const freq = freqLabel(s.cadacuanto||1);
-    const sublbl = calc ? `Q${calc.quincenaActual}/${calc.nTotal}` : '';
+    const freq = s.freqSvc==='SEMANAL' ? 'Semanal'+(s.diaSemana?' · '+s.diaSemana:'')
+              : s.freqSvc==='QUINCENAL' ? 'Quincenal'
+              : freqLabel(s.cadacuanto||1);
+    const sublbl = calc && calc.nTotal>1 ? `Q${calc.quincenaActual}/${calc.nTotal}` : '';
     const proxFecha = calcProxPagoSvc(s);
+    const diaInfo = (s.freqSvc!=='SEMANAL' && s.freqSvc!=='QUINCENAL' && s.diaPago) ? ' · día '+s.diaPago : '';
     return `<div class="svc">
       <div class="svc-info">
         <div class="svc-name">${s.concepto}</div>
-        <div class="svc-sub">${freq}${s.diaPago?' · día '+s.diaPago:''}${sublbl?' · '+sublbl:''}</div>
-        ${proxFecha?`<div style="font-size:10px;color:var(--text3);margin-top:1px">Próx. pago: ${proxFecha}</div>`:''}
+        <div class="svc-sub">${freq}${diaInfo}${sublbl?' · '+sublbl:''}</div>
+        ${proxFecha?`<div style="font-size:11px;color:var(--text2);margin-top:3px">Próximo pago: <strong style="color:var(--text)">${proxFecha}</strong></div>`:''}
       </div>
       <div class="svc-right">
-        <div style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--text2)">${mxn(s.monto)}/${(s.cadacuanto||1)>1?s.cadacuanto+'m':'mes'}</div>
+        <div style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--text2)">${mxn(s.monto)}</div>
         <div style="font-size:11px;color:var(--teal);margin-top:2px">-${mxn(calc?calc.pagoQuincena:0)} / ${label}</div>
       </div>
       <span class="ch-del" onclick="borrarSvc(${i})">×</span>
@@ -2160,6 +2218,30 @@ function abrirConfig(){
   id('cfg-tema').value=S.tema||'clasico';
   id('cfg-tz').value=S.zonaHoraria||'auto';
   onModoChange();
+  // Sincronizar checkboxes de secciones con el estado actual + listeners
+  if(!S.secciones) S.secciones = {extras:true,servicios:true,tdc:true,msi:true,deudas:true,otros:true,ahorro:true};
+  const cfgKeys = ['servicios','extras','tdc','msi','deudas','otros','ahorro'];
+  cfgKeys.forEach(key => {
+    const chk = document.getElementById('sec-' + key);
+    if(!chk) return;
+    chk.checked = S.secciones[key] !== false;
+    // Quitar handler previo y agregar el nuevo (asignación directa para evitar duplicados)
+    chk.onchange = async function(){
+      S.secciones[key] = chk.checked;
+      if(typeof save === 'function') save();
+      localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
+      // Persistir en BD
+      try {
+        if(typeof UID !== 'undefined' && UID){
+          await supa.from('perfiles').upsert({
+            user_id: UID,
+            secciones: S.secciones
+          }, { onConflict:'user_id' });
+        }
+      } catch(e){ console.warn('actualizar secciones:', e); }
+      aplicarVisibilidadSecciones();
+    };
+  });
   // Font size buttons
   aplicarFontSize(S.fontSize || 0);
   // Set section checkboxes
@@ -3065,6 +3147,22 @@ window.renderTDC = function(){
     }
   }
 
+  // Label del corte visible (se muestra el corte ANTERIOR al actual)
+  const lblEl = id('mov-corte-lbl');
+  if(lblEl){
+    const tarFiltro = tdcFiltro && tdcFiltro!=='todas' ? S.tarjetas.find(t=>t.nombre===tdcFiltro) : (S.tarjetas[0]||null);
+    if(tarFiltro){
+      const cv = cicloVisibleTarjeta(tarFiltro);
+      const fIni = cv.corteIni.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
+      const fFin = cv.corteFin.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
+      const fLim = cv.limite.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
+      const tarLabel = tdcFiltro && tdcFiltro!=='todas' ? '' : ` · ${tarFiltro.nombre}`;
+      lblEl.innerHTML = `Corte: <strong style="color:var(--text)">${fIni} – ${fFin}</strong> · Límite de pago: <strong style="color:var(--amber)">${fLim}</strong>${tarLabel}`;
+    } else {
+      lblEl.innerHTML = '';
+    }
+  }
+
   const opts=S.tarjetas.map(t=>`<option>${t.nombre}</option>`).join('');
   id('mov-tar').innerHTML=opts||'<option>Sin tarjetas</option>';
   id('msi-tar').innerHTML=opts||'<option>Sin tarjetas</option>';
@@ -3283,9 +3381,27 @@ window.renderMsi = function(){
       </div>`;
     }
 
-    const {plazoActual, nTotal, quincenaActual, pagoMensual, pagoQuincena} = calc;
+    const {plazoActual, nTotal, quincenaActual, pagoMensual, pagoQuincena, cicloActual} = calc;
     const label = S.modo==='QUINCENAL'?'Quincena':'Semana';
     const sublbl = `${label} ${quincenaActual} de ${nTotal} · Pago mensual ${plazoActual} de ${m.plazo}`;
+
+    // Próximo pago = límite del ciclo actual del MSI
+    let proxStr = '', finStr = '';
+    if(cicloActual && cicloActual.limite){
+      proxStr = fmtTandaFecha(cicloActual.limite);
+      // Fecha final = límite + (plazo - plazoActual) meses, ajustando por día válido
+      const restantes = (m.plazo||1) - plazoActual;
+      const lim = new Date(cicloActual.limite);
+      const fY = lim.getFullYear(), fM = lim.getMonth() + restantes;
+      const maxD = new Date(fY, fM+1, 0).getDate();
+      const fechaFinMsi = new Date(fY, fM, Math.min(lim.getDate(), maxD));
+      fechaFinMsi.setHours(0,0,0,0);
+      finStr = fmtTandaFecha(fechaFinMsi);
+    }
+    const footerFechasMsi = (proxStr || finStr) ? `<div style="font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+      ${proxStr ? `Próximo pago: <strong style="color:var(--text)">${proxStr}</strong><br>` : ''}
+      ${finStr ? `Fin de pagos: <strong style="color:var(--text)">${finStr}</strong>` : ''}
+    </div>` : '';
 
     return `<div class="msi ${excl?'x':''}">
       <div class="msi-hdr">
@@ -3305,6 +3421,7 @@ window.renderMsi = function(){
         <span class="badge ${excl?'r':'g'}" onclick="toggleMsiSec(${i})" style="cursor:pointer">${excl?'✕ no mío':'✓ mío'}</span>
         <span class="ch-del" onclick="confirmarDelMsi(${i})">×</span>
       </div>
+      ${footerFechasMsi}
     </div>`;
   }).join('');
 
@@ -3644,6 +3761,24 @@ function renderTandaCard(d, i){
             </div>`
           : `<div style="margin-top:8px;font-size:12px;color:var(--text2)">Se debe aún: <strong style="color:var(--amber);font-family:var(--mono)">${mxn(n.saldoRestante)}</strong></div>`;
 
+        // Próxima fecha visible: solo si hay UN solo evento por periodo
+        // SEMANAL+sueldoQUINCENAL → varios plazos → NO mostrar próxima
+        // SEMANAL+sueldoSEMANAL → 1 plazo → SÍ
+        // QUINCENAL+sueldoQUINCENAL → 1 plazo → SÍ
+        // QUINCENAL+sueldoSEMANAL → 1 plazo → SÍ
+        let proximaStr = '';
+        if(n.modoRender !== 'SEMANAL' || S.modo === 'SEMANAL'){
+          const fProx = n.modoRender === 'SEMANAL'
+            ? (n.plazosEnPeriodo && n.plazosEnPeriodo[0] && n.plazosEnPeriodo[0].fecha)
+            : n.fechaPlazoActual;
+          if(fProx) proximaStr = fmtTandaFecha(fProx);
+        }
+        const fechaFinStr = n.fechaFinDeuda ? fmtTandaFecha(n.fechaFinDeuda) : '';
+        const footerFechas = `<div style="font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+          ${proximaStr ? `Próximo pago: <strong style="color:var(--text)">${proximaStr}</strong><br>` : ''}
+          ${fechaFinStr ? `Fin de pagos: <strong style="color:var(--text)">${fechaFinStr}</strong>` : ''}
+        </div>`;
+
         return `<div class="deu">
           <div class="deu-hdr">
             <div class="deu-name" style="font-size:15px;font-weight:700;color:var(--text)">${d.concepto}</div>
@@ -3661,6 +3796,7 @@ function renderTandaCard(d, i){
             <span style="font-size:15px;font-weight:800;color:var(--amber);font-family:var(--mono)">-${mxn(n.pagoPeriodo)}</span>
             <span class="ch-del" onclick="borrarDeu(${i})">×</span>
           </div>
+          ${footerFechas}
         </div>`;
       }
 
@@ -3687,6 +3823,14 @@ function renderTandaCard(d, i){
       const pagosYaHechos = Math.max(0, plazoActual - 1);
       const saldoActual = Math.max(0, totalPagar - pagosYaHechos * d.pago);
 
+      // MENSUAL: próxima fecha = limitePago, fin = fechaFinDeuda
+      const proxStrM = calc.limitePago ? fmtTandaFecha(calc.limitePago) : '';
+      const finStrM  = calc.fechaFinDeuda ? fmtTandaFecha(calc.fechaFinDeuda) : '';
+      const footerFechasM = `<div style="font-size:11px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+        ${proxStrM ? `Próximo pago: <strong style="color:var(--text)">${proxStrM}</strong><br>` : ''}
+        ${finStrM ? `Fin de pagos: <strong style="color:var(--text)">${finStrM}</strong>` : ''}
+      </div>`;
+
       return `<div class="deu">
         <div class="deu-hdr">
           <div class="deu-name" style="font-size:15px;font-weight:700;color:var(--text)">${d.concepto}</div>
@@ -3708,6 +3852,7 @@ function renderTandaCard(d, i){
           <span style="font-size:15px;font-weight:800;color:var(--amber);font-family:var(--mono)">-${mxn(pagoQuincena)}</span>
           <span class="ch-del" onclick="borrarDeu(${i})">×</span>
         </div>
+        ${footerFechasM}
       </div>`;
     }).filter(x => x); // filtrar vacíos (deudas liquidadas ocultas)
 
@@ -3887,21 +4032,42 @@ function syncTandaExtras(){
   try {
     const {data} = await supa.from('perfiles').select('*').eq('user_id', UID).maybeSingle();
     if(!data) return;
+    const modoAnterior = S.modo;
+    const diaSemAnterior = S.diaSem;
     // Aplicar al estado S
     if(data.sexo) S.sexo = data.sexo;
     if(data.tema) S.tema = data.tema;
     if(data.modo) S.modo = data.modo;
-    if(data.sueldo != null && !S.sueldo) S.sueldo = parseFloat(data.sueldo)||0;
+    if(data.sueldo != null) S.sueldo = parseFloat(data.sueldo)||0;
     if(data.sueldo_fijo != null) S.sueldoFijo = !!data.sueldo_fijo;
-    if(data.dia_cobro) S.diaCobro = data.dia_cobro;
+    if(data.dia_cobro){
+      S.diaCobro = data.dia_cobro;
+      S.diaSem = data.dia_cobro;
+    }
     if(data.secciones) S.secciones = Object.assign(S.secciones||{}, data.secciones);
     if(data.onboarding_done){
       S.onboardingDone = true;
       localStorage.setItem('onboarding_done_'+UID, '1');
     }
+    // Si cambió el modo o el día de cobro, regenerar PERIODOS
+    if(modoAnterior !== S.modo || diaSemAnterior !== S.diaSem){
+      try {
+        if(typeof calcPeriodosDesdeHoy === 'function'){
+          PERIODOS = calcPeriodosDesdeHoy();
+          const hoy = new Date(); hoy.setHours(0,0,0,0);
+          for(let i=0; i<PERIODOS.length; i++){
+            const pIni = new Date(PERIODOS[i].ini); pIni.setHours(0,0,0,0);
+            const pFin = new Date(PERIODOS[i].fin); pFin.setHours(0,0,0,0);
+            if(hoy >= pIni && hoy <= pFin){ S.periodoIdx = i; break; }
+          }
+        }
+      } catch(e){ console.warn('regen periodos:', e); }
+    }
     // Aplicar tema y visibilidad
     if(typeof aplicarTema === 'function' && S.tema) aplicarTema(S.tema);
     if(typeof aplicarVisibilidadSecciones === 'function') aplicarVisibilidadSecciones();
+    // Re-render
+    if(typeof renderPrincipal === 'function') renderPrincipal();
   } catch(e){ console.warn('cargar perfil:', e); }
 })();
 
@@ -4053,10 +4219,17 @@ async function onbFinish(){
 
   // Aplicar al estado global S
   try {
+    const modoCambio = S.modo !== ONB.modo;
+    const diaCobroCambio = ONB.modo === 'SEMANAL' && S.diaSem !== ONB.diaCobro;
+
     S.sexo = ONB.sexo;
     S.tema = ONB.theme;
     S.modo = ONB.modo;
-    if(ONB.modo === 'SEMANAL') S.diaCobro = ONB.diaCobro;
+    // Importante: la app usa S.diaSem (no S.diaCobro) para el día de cobro semanal
+    if(ONB.modo === 'SEMANAL'){
+      S.diaCobro = ONB.diaCobro;
+      S.diaSem = ONB.diaCobro;
+    }
     S.sueldo = ONB.sueldo;
     S.sueldoFijo = ONB.fijo;
     // Guardar sueldo del periodo actual
@@ -4070,11 +4243,31 @@ async function onbFinish(){
     // Marcar onboarding completado
     S.onboardingDone = true;
 
+    // Si cambió el modo o el día de cobro, regenerar PERIODOS
+    if(modoCambio || diaCobroCambio){
+      try {
+        if(typeof calcPeriodosDesdeHoy === 'function'){
+          PERIODOS = calcPeriodosDesdeHoy();
+          // Buscar el periodo que contiene HOY
+          const hoy = new Date(); hoy.setHours(0,0,0,0);
+          let nuevoIdx = 0;
+          for(let i=0; i<PERIODOS.length; i++){
+            const pIni = new Date(PERIODOS[i].ini); pIni.setHours(0,0,0,0);
+            const pFin = new Date(PERIODOS[i].fin); pFin.setHours(0,0,0,0);
+            if(hoy >= pIni && hoy <= pFin){ nuevoIdx = i; break; }
+          }
+          S.periodoIdx = nuevoIdx;
+          // Re-asignar sueldo al nuevo periodo
+          S.sueldos[S.periodoIdx] = ONB.sueldo;
+        }
+      } catch(e){ console.warn('regenerar periodos:', e); }
+    }
+
     // Persistir
     if(typeof save === 'function') save();
     localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
 
-    // Guardar en DB si la tabla existe (requiere migracion-perfiles.sql)
+    // Guardar en DB
     try {
       if(typeof UID !== 'undefined' && UID){
         await supa.from('perfiles').upsert({
@@ -4109,42 +4302,59 @@ async function onbFinish(){
 }
 
 // Aplica la visibilidad de secciones según S.secciones
-// Busca los contenedores por ID conocidos o data-atributos.
+// Oculta:
+//   - Tabs del sidebar (.sb-tab[data-tab=X])
+//   - Tabs móviles (.tab por índice)
+//   - Filas de Percepciones/Deducciones en el main (data-section=X)
+// IMPORTANTE: NO oculta los checkboxes 'sec-X' del modal de Configuración
 function aplicarVisibilidadSecciones(){
   if(!S.secciones) return;
-  const mapa = {
-    extras:    ['sec-ext','sec-extras','ext-sec','section-extras'],
-    servicios: ['sec-svc','sec-servicios','svc-sec','section-servicios'],
-    tdc:       ['sec-tdc','section-tdc'],
-    msi:       ['sec-msi','section-msi'],
-    deudas:    ['sec-deu','sec-deudas','deu-sec','section-deudas'],
-    otros:     ['sec-otros','section-otros','sec-mov'],
-    ahorro:    ['sec-aho','sec-ahorro','section-ahorro']
-  };
-  Object.keys(mapa).forEach(key => {
+  const tabIndices = {principal:0, servicios:1, extras:2, tdc:3, msi:4, deudas:5, otros:6, ahorro:7};
+  const mTabs = document.querySelectorAll('.tab');
+
+  Object.keys(S.secciones).forEach(key => {
     const visible = S.secciones[key] !== false;
-    // Buscar por IDs posibles
-    mapa[key].forEach(tid => {
-      const el = document.getElementById(tid);
-      if(el) el.style.display = visible ? '' : 'none';
+    // Sidebar tab
+    document.querySelectorAll(`.sb-tab[data-tab="${key}"]`).forEach(el => {
+      el.style.display = visible ? '' : 'none';
     });
-    // Buscar por data-section
+    // Mobile tab
+    const idx = tabIndices[key];
+    if(idx != null && mTabs[idx]) mTabs[idx].style.display = visible ? '' : 'none';
+    // Filas main (data-section)
     document.querySelectorAll(`[data-section="${key}"]`).forEach(el => {
       el.style.display = visible ? '' : 'none';
     });
   });
+
+  // Sincronizar los checkboxes del modal de Configuración con los valores actuales
+  // Esto asegura que cuando el usuario abra Config, vea el estado correcto
+  const cfgChecks = ['servicios','extras','tdc','msi','deudas','otros','ahorro'];
+  cfgChecks.forEach(key => {
+    const chk = document.getElementById('sec-' + key);
+    if(chk) chk.checked = S.secciones[key] !== false;
+  });
 }
 
-// Lanzar onboarding si es primera vez. Se ejecuta DESPUÉS de que init cargue datos.
-function mostrarOnboardingSiEsNecesario(){
+// Lanzar onboarding si es primera vez. Se ejecuta DESPUÉS de cargarPerfilDesdeDB.
+async function mostrarOnboardingSiEsNecesario(){
   if(!S) return;
-  if(S.onboardingDone) return;
-  // También chequear localStorage para no mostrarlo dos veces
-  const flag = localStorage.getItem('onboarding_done_'+UID);
-  if(flag === '1'){
-    S.onboardingDone = true;
-    return;
+
+  // Consultar la BD como fuente de verdad (no confiar en localStorage entre usuarios)
+  if(typeof UID !== 'undefined' && UID){
+    try {
+      const {data} = await supa.from('perfiles').select('onboarding_done').eq('user_id', UID).maybeSingle();
+      if(data && data.onboarding_done === true){
+        S.onboardingDone = true;
+        localStorage.setItem('onboarding_done_'+UID, '1');
+        return;
+      }
+    } catch(e){ console.warn('verificar onboarding en BD:', e); }
   }
+
+  // Si la BD dice false (o no hay fila), mostrar el tutorial
+  // ignoramos localStorage en este punto porque no es de fiar entre usuarios distintos
+  S.onboardingDone = false;
   // Inicializar en paso 0 (sexo) y mostrar
   onbNext(0);
   openModal('m-onboard');
@@ -4177,4 +4387,427 @@ function mostrarOnboardingSiEsNecesario(){
     if(typeof origCloseModal === 'function') return origCloseModal(idModal);
     const el = id(idModal); if(el) el.classList.remove('show');
   };
+})();
+
+
+// ═══════════════════════════════════════════════════════════════
+// ═══ NOTIFICACIONES (PRÓXIMOS PAGOS) ═══════════════════════════
+// ═══════════════════════════════════════════════════════════════
+//
+// Reglas:
+//  - Aparecen 5 días antes de la fecha límite del pago.
+//  - Tanda premio: solo aparece el día del premio, desaparece el día siguiente.
+//  - Pagos semanales (deuda/tanda) en sueldo QUINCENAL → agrupados.
+//    Resto: una notificación por evento.
+//  - NO se muestran:
+//      · Servicios SEMANALES rutinarios
+//      · TDC (la lógica TDC tiene su propio sistema de cortes)
+//      · Pagos liquidados / fechas pasadas sin marcar (estos se ven como VENCIDO)
+//  - Marcar como pagado → al fondo con flag ✓ → desaparece 3 días después.
+//  - Desmarcar → reinicia el contador (vuelve a no pagado).
+//  - Sincronizado con Supabase tabla `notificaciones_estado`.
+//    Cada notificación tiene un "key" único: tipo|id|fechaISO
+//
+// Estado persistido por notificación:
+//  { key, pagado: bool, fechaPago: ISO (cuando se marcó), oculto: bool }
+
+let _notifEstado = {};   // map key -> {pagado, fechaPago, oculto}
+let _notifCacheLista = [];  // última lista calculada
+
+// Cargar estados desde Supabase
+async function cargarNotifEstado(){
+  if(typeof UID === 'undefined' || !UID) return;
+  try {
+    const {data} = await supa.from('notificaciones_estado').select('*').eq('user_id', UID);
+    if(!data) return;
+    _notifEstado = {};
+    data.forEach(r => {
+      _notifEstado[r.notif_key] = {
+        pagado: !!r.pagado,
+        fechaPago: r.fecha_pago || null,
+        oculto: !!r.oculto
+      };
+    });
+  } catch(e){ console.warn('cargar notif estado:', e); }
+}
+
+async function guardarNotifEstado(key, estado){
+  _notifEstado[key] = estado;
+  if(typeof UID === 'undefined' || !UID) return;
+  try {
+    await supa.from('notificaciones_estado').upsert({
+      user_id: UID,
+      notif_key: key,
+      pagado: !!estado.pagado,
+      fecha_pago: estado.fechaPago || null,
+      oculto: !!estado.oculto
+    }, { onConflict: 'user_id,notif_key' });
+  } catch(e){ console.warn('guardar notif estado:', e); }
+}
+
+// Helpers de fecha
+function _diasEntre(a, b){
+  const ms = b.getTime() - a.getTime();
+  return Math.round(ms / 86400000);
+}
+function _isoDate(d){
+  return d.toISOString().split('T')[0];
+}
+
+// Genera todas las notificaciones potenciales (sin filtrar por ventana de 5 días)
+function generarNotificacionesRaw(){
+  const lista = [];
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+
+  // Helper para meter una notif
+  function add(tipo, refId, fecha, titulo, sub, monto, extra){
+    if(!fecha) return;
+    const f = new Date(fecha); f.setHours(0,0,0,0);
+    const key = `${tipo}|${refId}|${_isoDate(f)}`;
+    lista.push({
+      key, tipo, refId,
+      fecha: f,
+      titulo, sub: sub||'', monto: monto||0,
+      ...(extra||{})
+    });
+  }
+
+  // ── DEUDAS ──
+  S.deudas.forEach(d => {
+    if(d.tipo === 'tanda'){
+      // Tanda: una notif por número (excepto el premio, que es noti aparte)
+      // Generar fechas de números próximos (los siguientes 60 días para no saturar)
+      const fIni = new Date(d.ini+'T12:00:00'); fIni.setHours(0,0,0,0);
+      for(let n=1; n<=d.plazo; n++){
+        const f = new Date(fIni);
+        f.setDate(fIni.getDate() + (n-1)*7);
+        f.setHours(0,0,0,0);
+        // Solo nos interesan las cercanas (60 días en cada dirección por margen)
+        const dDias = _diasEntre(hoy, f);
+        if(dDias < -30 || dDias > 60) continue;
+        if(n === d.numAsignado){
+          // Es el premio
+          add('tanda_premio', d.id, f,
+            `🎲 Premio de tanda: ${d.concepto}`,
+            `Hoy recibes el premio. NO pagas este número.`,
+            d.pago * (d.plazo - 1),
+            { esPremio:true, recibe:true });
+        } else {
+          add('tanda_pago', `${d.id}|${n}`, f,
+            `🎲 Tanda: ${d.concepto}`,
+            `Aporte número ${n} de ${d.plazo}`,
+            d.pago,
+            { plazoNum: n, deudaId: d.id });
+        }
+      }
+      return;
+    }
+
+    // Deuda normal
+    if(d.freq === 'SEMANAL' || d.freq === 'QUINCENAL'){
+      // Generar fechas de pago próximas
+      const fIni = new Date(d.ini+'T12:00:00'); fIni.setHours(0,0,0,0);
+      let fechas = [];
+      if(d.freq === 'SEMANAL'){
+        for(let n=0; n<d.plazo; n++){
+          const f = new Date(fIni);
+          f.setDate(fIni.getDate() + n*7);
+          fechas.push(f);
+        }
+      } else {
+        let y = fIni.getFullYear(), m = fIni.getMonth();
+        let half = fIni.getDate() <= 15 ? 1 : 2;
+        let count = 0;
+        for(let i=0; i<500 && count<d.plazo; i++){
+          const finMes = new Date(y, m+1, 0).getDate();
+          const f = half === 1 ? new Date(y, m, 15) : new Date(y, m, finMes);
+          f.setHours(0,0,0,0);
+          if(f >= fIni){ fechas.push(f); count++; }
+          half++; if(half>2){ half=1; m++; if(m>11){m=0; y++;} }
+        }
+      }
+      fechas.forEach((f, idx) => {
+        const dDias = _diasEntre(hoy, f);
+        if(dDias < -30 || dDias > 60) return;
+        const plazoNum = idx + 1;
+        add('deuda_pago', `${d.id}|${plazoNum}`, f,
+          `${d.concepto}`,
+          `${d.freq} · Plazo ${plazoNum} de ${d.plazo}`,
+          d.pago,
+          { plazoNum, deudaId: d.id, freq: d.freq });
+      });
+    } else if(d.freq === 'MENSUAL'){
+      // Generar fechas mensuales con fix día 31
+      const fIni = new Date(d.ini+'T12:00:00'); fIni.setHours(0,0,0,0);
+      const diaPago = fIni.getDate();
+      for(let n=0; n<d.plazo; n++){
+        const tY = fIni.getFullYear();
+        const tM = fIni.getMonth() + n;
+        const maxD = new Date(tY, tM+1, 0).getDate();
+        const f = new Date(tY, tM, Math.min(diaPago, maxD));
+        f.setHours(0,0,0,0);
+        const dDias = _diasEntre(hoy, f);
+        if(dDias < -30 || dDias > 60) continue;
+        const plazoNum = n + 1;
+        add('deuda_pago', `${d.id}|${plazoNum}`, f,
+          `${d.concepto}`,
+          `MENSUAL · Plazo ${plazoNum} de ${d.plazo}`,
+          d.pago,
+          { plazoNum, deudaId: d.id, freq: d.freq });
+      }
+    }
+  });
+
+  // ── SERVICIOS (excluyendo SEMANALES rutinarios) ──
+  S.servicios.forEach(s => {
+    if(s.freqSvc === 'SEMANAL') return; // omitir semanales
+    const f = calcProxPagoSvcDate(s);
+    if(!f) return;
+    const dDias = _diasEntre(hoy, f);
+    if(dDias < -30 || dDias > 60) return;
+    const freqStr = s.freqSvc === 'QUINCENAL' ? 'Quincenal' : freqLabel(s.cadacuanto||1);
+    add('servicio', s.id, f,
+      `${s.concepto}`,
+      `${freqStr}`,
+      s.monto,
+      { svcId: s.id });
+  });
+
+  // ── MSI ──
+  S.msis.forEach(m => {
+    if(m.incluir === 'NO') return;
+    const tar = S.tarjetas.find(t => t.nombre === m.tarjeta);
+    if(!tar) return;
+    const calc = calcMsiEnPeriodo(m, tar);
+    if(!calc || !calc.cicloActual) return;
+    const f = new Date(calc.cicloActual.limite);
+    f.setHours(0,0,0,0);
+    const dDias = _diasEntre(hoy, f);
+    if(dDias < -30 || dDias > 60) return;
+    add('msi', `${m.id}|${calc.plazoActual}`, f,
+      `MSI: ${m.concepto}`,
+      `${m.tarjeta} · Pago ${calc.plazoActual} de ${m.plazo}`,
+      calc.pagoMensual,
+      { msiId: m.id, plazoNum: calc.plazoActual });
+  });
+
+  return lista;
+}
+
+// Aplica reglas de visibilidad: ventana 5 días, agrupación, marcado pagado, etc.
+function generarNotificacionesVisibles(){
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const raw = generarNotificacionesRaw();
+
+  // Agrupar pagos semanales (deuda/tanda) cuando sueldo es QUINCENAL.
+  // Regla: agrupar las que caen dentro del MISMO periodo quincenal del calendario.
+  let lista = raw;
+  if(S.modo === 'QUINCENAL'){
+    const grupos = {};
+    const noAgrupables = [];
+    raw.forEach(n => {
+      const esSemanal = (n.tipo === 'deuda_pago' && n.freq === 'SEMANAL')
+                     || (n.tipo === 'tanda_pago');
+      if(!esSemanal){ noAgrupables.push(n); return; }
+      // Encontrar inicio de quincena (1 o 16) que contiene n.fecha
+      const f = n.fecha;
+      const quincIni = f.getDate() <= 15
+        ? new Date(f.getFullYear(), f.getMonth(), 1)
+        : new Date(f.getFullYear(), f.getMonth(), 16);
+      quincIni.setHours(0,0,0,0);
+      const grupoKey = `${n.tipo === 'tanda_pago' ? 'tanda' : 'deuda'}|${n.deudaId}|${_isoDate(quincIni)}`;
+      if(!grupos[grupoKey]) grupos[grupoKey] = { items: [], grupoKey, fechaPrimera: n.fecha, deudaId: n.deudaId, tipo: n.tipo };
+      grupos[grupoKey].items.push(n);
+      if(n.fecha < grupos[grupoKey].fechaPrimera) grupos[grupoKey].fechaPrimera = n.fecha;
+    });
+
+    // Convertir grupos en notificaciones (si tienen >1 item, es agrupada)
+    Object.values(grupos).forEach(g => {
+      if(g.items.length === 1){
+        noAgrupables.push(g.items[0]);
+        return;
+      }
+      // Agrupada: monto = suma, título igual, sub = "Plazos N,M..."
+      g.items.sort((a,b) => a.fecha - b.fecha);
+      const primero = g.items[0];
+      const nums = g.items.map(it => it.plazoNum).join(', ');
+      const monto = g.items.reduce((a,b) => a + b.monto, 0);
+      const isTanda = g.tipo === 'tanda_pago';
+      noAgrupables.push({
+        key: `grupo|${g.grupoKey}`,
+        tipo: isTanda ? 'tanda_grupo' : 'deuda_grupo',
+        refId: g.deudaId,
+        fecha: g.fechaPrimera,
+        titulo: primero.titulo,
+        sub: `${isTanda ? 'Números' : 'Plazos'} ${nums}`,
+        monto,
+        plazos: g.items.map(it => it.plazoNum),
+        items: g.items
+      });
+    });
+    lista = noAgrupables;
+  }
+
+  // Filtrar por ventana de visibilidad (5 días antes + reglas de pagado/vencido)
+  const visibles = [];
+  lista.forEach(n => {
+    const dDias = _diasEntre(hoy, n.fecha);
+    const estado = _notifEstado[n.key] || {};
+    n.pagado = !!estado.pagado;
+    n.fechaPago = estado.fechaPago || null;
+    n.oculto = !!estado.oculto;
+
+    if(n.oculto) return;
+
+    // Tanda premio: solo aparece el día exacto, desaparece al día siguiente
+    if(n.tipo === 'tanda_premio'){
+      if(dDias === 0) visibles.push(n);
+      return;
+    }
+
+    // Si está pagado → quitar 3 días después de la fecha de marcado
+    if(n.pagado && n.fechaPago){
+      const fp = new Date(n.fechaPago); fp.setHours(0,0,0,0);
+      const desdePago = _diasEntre(fp, hoy);
+      if(desdePago > 3) return; // desaparece
+      visibles.push(n);
+      return;
+    }
+
+    // No pagado: aparece 5 días antes; si pasa la fecha sin marcar → VENCIDO (sigue visible)
+    if(dDias <= 5) visibles.push(n);
+  });
+
+  // Ordenar: no-pagados-no-vencidos primero (más cercanos), luego vencidos, luego pagados
+  visibles.sort((a, b) => {
+    const aPag = a.pagado ? 1 : 0;
+    const bPag = b.pagado ? 1 : 0;
+    if(aPag !== bPag) return aPag - bPag;
+    return a.fecha - b.fecha;
+  });
+
+  _notifCacheLista = visibles;
+  return visibles;
+}
+
+// Cuenta para el badge: cosas urgentes (≤3 días, no pagadas)
+function contarNotifBadge(){
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  return _notifCacheLista.filter(n => {
+    if(n.pagado) return false;
+    const d = _diasEntre(hoy, n.fecha);
+    return d <= 3;
+  }).length;
+}
+
+// Texto de "cuándo es": HOY, MAÑANA, EN N DÍAS, VENCIDO, etc.
+function notifEtiquetaTiempo(n){
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const d = _diasEntre(hoy, n.fecha);
+  if(n.pagado) return '✓ PAGADO';
+  if(n.tipo === 'tanda_premio' && d === 0) return '⭐ ¡HOY TE TOCA!';
+  if(d < 0) return `VENCIDO HACE ${-d} DÍA${-d===1?'':'S'}`;
+  if(d === 0) return 'HOY';
+  if(d === 1) return 'MAÑANA';
+  return `EN ${d} DÍAS`;
+}
+
+function notifClaseColor(n){
+  if(n.pagado) return 'pagado';
+  if(n.tipo === 'tanda_premio') return 'premio';
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const d = _diasEntre(hoy, n.fecha);
+  if(d < 0 || d <= 1) return 'urgente';
+  if(d <= 3) return 'pronto';
+  return '';
+}
+
+// Render del modal
+function renderNotificaciones(){
+  const visibles = generarNotificacionesVisibles();
+  const list = id('notif-list');
+  if(!list) return;
+
+  if(!visibles.length){
+    list.innerHTML = `<div class="notif-empty">No tienes pagos próximos.<br><span style="font-size:11px;color:var(--text3)">Las notificaciones aparecen 5 días antes de la fecha límite.</span></div>`;
+    return;
+  }
+
+  list.innerHTML = visibles.map(n => {
+    const claseColor = notifClaseColor(n);
+    const eti = notifEtiquetaTiempo(n);
+    const fechaTxt = n.fecha.toLocaleDateString('es-MX', {weekday:'long', day:'2-digit', month:'long'});
+    const recibe = n.recibe ? '+' : '';
+    const montoColor = n.recibe ? 'var(--green)' : 'var(--text)';
+
+    let acciones;
+    if(n.pagado){
+      acciones = `<button class="notif-btn gray" onclick="desmarcarNotif('${n.key.replace(/'/g,"\\'")}')">Desmarcar (revertir)</button>`;
+    } else {
+      acciones = `<button class="notif-btn green" onclick="marcarNotifPagado('${n.key.replace(/'/g,"\\'")}')">✓ Marcar como pagado</button>`;
+    }
+
+    return `<div class="notif-card ${claseColor}">
+      <div class="notif-hdr">
+        <div class="notif-fecha ${claseColor}">${eti} · ${fechaTxt}</div>
+        <div class="notif-monto" style="color:${montoColor}">${recibe}${mxn(n.monto)}</div>
+      </div>
+      <div class="notif-titulo">${n.titulo}</div>
+      ${n.sub ? `<div class="notif-sub">${n.sub}</div>` : ''}
+      <div class="notif-actions">${acciones}</div>
+    </div>`;
+  }).join('');
+}
+
+// Actualiza el badge de la campana
+function actualizarBadgeNotif(){
+  generarNotificacionesVisibles(); // refresca cache
+  const n = contarNotifBadge();
+  const badge = id('notif-badge');
+  if(!badge) return;
+  if(n > 0){
+    badge.textContent = n;
+    badge.style.display = 'flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+// Acciones
+async function marcarNotifPagado(key){
+  await guardarNotifEstado(key, {
+    pagado: true,
+    fechaPago: _isoDate(new Date()),
+    oculto: false
+  });
+  renderNotificaciones();
+  actualizarBadgeNotif();
+}
+
+async function desmarcarNotif(key){
+  await guardarNotifEstado(key, {
+    pagado: false,
+    fechaPago: null,
+    oculto: false
+  });
+  renderNotificaciones();
+  actualizarBadgeNotif();
+}
+
+function abrirNotificaciones(){
+  renderNotificaciones();
+  openModal('m-notif');
+}
+
+// Inicialización: cargar estado y refrescar badge
+(async function initNotifs(){
+  const waitUID = () => new Promise(r => {
+    const t = setInterval(() => { if(typeof UID !== 'undefined' && UID){ clearInterval(t); r(); } }, 100);
+    setTimeout(() => { clearInterval(t); r(); }, 15000);
+  });
+  await waitUID();
+  await cargarNotifEstado();
+  actualizarBadgeNotif();
+  // Refrescar cada 60 segundos por si pasa el día
+  setInterval(actualizarBadgeNotif, 60000);
 })();

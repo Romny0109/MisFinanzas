@@ -686,3 +686,34 @@ select.fi{cursor:pointer}
 }
 .onb-sexo:hover{background:var(--card2)}
 .onb-sexo.sel{background:var(--blue);color:#fff;border-color:var(--blue)}
+
+/* ═══ NOTIFICACIONES ═══ */
+.notif-card{
+  background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:12px;margin-bottom:8px;display:flex;flex-direction:column;gap:6px
+}
+.notif-card.urgente{border-color:var(--red);background:rgba(248,113,113,.06)}
+.notif-card.pronto{border-color:var(--amber);background:rgba(251,191,36,.06)}
+.notif-card.pagado{opacity:.55;border-style:dashed}
+.notif-card.premio{border-color:var(--green);background:rgba(74,222,128,.08)}
+.notif-hdr{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.notif-fecha{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.3px}
+.notif-fecha.urgente{color:var(--red)}
+.notif-fecha.pronto{color:var(--amber)}
+.notif-fecha.premio{color:var(--green)}
+.notif-monto{font-size:14px;font-weight:800;font-family:var(--mono);color:var(--text)}
+.notif-titulo{font-size:14px;font-weight:700;color:var(--text)}
+.notif-sub{font-size:11px;color:var(--text2)}
+.notif-actions{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.notif-btn{
+  flex:1;min-width:0;padding:6px 10px;border-radius:6px;font-size:11px;font-weight:600;
+  cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text);
+  font-family:var(--font)
+}
+.notif-btn.green{border-color:var(--green);color:var(--green)}
+.notif-btn.green:hover{background:rgba(74,222,128,.1)}
+.notif-btn.gray:hover{background:var(--card2)}
+.notif-empty{
+  text-align:center;padding:32px 16px;color:var(--text2);font-size:13px;
+  border:1px dashed var(--border);border-radius:10px
+}

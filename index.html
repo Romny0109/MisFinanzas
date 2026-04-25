@@ -86,6 +86,10 @@
       <div class="hdr-title">Mis <span>Finanzas</span></div>
       <div style="display:flex;align-items:center;gap:6px">
         <div class="hdr-date" id="hdr-date">—</div>
+        <button id="notif-btn" onclick="abrirNotificaciones()" title="Notificaciones" style="position:relative;display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer;font-size:16px">
+          🔔
+          <span id="notif-badge" style="display:none;position:absolute;top:-4px;right:-4px;background:var(--red);color:#fff;font-size:9px;font-weight:700;min-width:16px;height:16px;border-radius:8px;padding:0 4px;align-items:center;justify-content:center;font-family:var(--font)">0</span>
+        </button>
         <div style="position:relative">
           <button id="profile-btn" onclick="toggleProfileMenu()" style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer;font-family:var(--font)">
             <span id="profile-name-hdr">Usuario</span>
@@ -190,7 +194,7 @@
           <div><div class="row-l">Sueldo</div></div>
           <div class="row-a pos" id="p-sueldo">$0.00</div>
         </div>
-        <div class="row">
+        <div class="row" data-section="extras">
           <div class="row-lnk" onclick="goTabBtn('extras')">Extras ↗</div>
           <div class="row-a pos" id="p-extras">$0.00</div>
         </div>
@@ -199,27 +203,27 @@
       </div>
       <div class="col-card">
         <div class="col-hdr r">DEDUCCIONES</div>
-        <div class="row">
+        <div class="row" data-section="servicios">
           <div class="row-lnk" onclick="goTabBtn('servicios')">Servicios ↗</div>
           <div class="row-a neg" id="d-svc">$0.00</div>
         </div>
-        <div class="row">
+        <div class="row" data-section="tdc">
           <div class="row-lnk" onclick="goTabBtn('tdc')">TDC ↗</div>
           <div class="row-a neg" id="d-tdc">$0.00</div>
         </div>
-        <div class="row">
+        <div class="row" data-section="msi">
           <div class="row-lnk" onclick="goTabBtn('msi')">MSI ↗</div>
           <div class="row-a neg" id="d-msi">$0.00</div>
         </div>
-        <div class="row">
+        <div class="row" data-section="deudas">
           <div class="row-lnk" onclick="goTabBtn('deudas')">Deudas ↗</div>
           <div class="row-a neg" id="d-deu">$0.00</div>
         </div>
-        <div class="row">
+        <div class="row" data-section="otros">
           <div class="row-lnk" onclick="goTabBtn('otros')">Otros gastos ↗</div>
           <div class="row-a neg" id="d-otros">$0.00</div>
         </div>
-        <div class="row">
+        <div class="row" data-section="ahorro">
           <div class="row-lnk" onclick="goTabBtn('ahorro')">Ahorro ↗</div>
           <div class="row-a neg" id="d-aho">$0.00</div>
         </div>
@@ -359,6 +363,8 @@
           <button class="add-btn" onclick="if(!S.tarjetas.length){alert('Primero agrega una tarjeta de crédito');return;} openModal('m-mov')">+ mov</button>
         </div>
       </div>
+      <!-- Label del corte que se está viendo -->
+      <div id="mov-corte-lbl" style="font-size:11px;color:var(--text2);margin:-6px 0 10px 0;line-height:1.4"></div>
       <!-- Filtro por tarjeta -->
       <div id="tdc-filtro-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
       <div id="mov-list"><div class="empty"><div class="empty-icon">—</div>Sin movimientos — agrega el primero</div></div>
@@ -535,6 +541,19 @@
 </div>
 
 <!-- ══ MODALES ══ -->
+
+<!-- Notificaciones / Próximos pagos -->
+<div class="overlay" id="m-notif">
+  <div class="modal" style="max-height:85vh;overflow-y:auto">
+    <div class="m-handle"></div>
+    <div class="m-title">📅 Próximos pagos</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Aparecen 5 días antes de la fecha límite. Marca como pagado para que desaparezca.</div>
+    <div id="notif-list"></div>
+    <div class="m-footer">
+      <button class="btn btn-g" style="flex:1" onclick="closeModal('m-notif')">Cerrar</button>
+    </div>
+  </div>
+</div>
 
 <!-- Onboarding / Bienvenida primera vez -->
 <div class="overlay" id="m-onboard">

@@ -1927,7 +1927,7 @@ function renderSvc(){
               : s.freqSvc==='QUINCENAL' ? 'Quincenal'
               : freqLabel(s.cadacuanto||1);
     const subLetra = S.modo==='SEMANAL' ? 'S' : 'Q';
-    const sublbl = calc && calc.nTotal>1 ? `${subLetra}${calc.quincenaActual}/${calc.nTotal}` : '';
+    const sublbl = calc && calc.nTotal>=1 ? `${subLetra}${calc.quincenaActual}/${calc.nTotal}` : '';
     const proxFecha = calcProxPagoSvc(s);
     const diaInfo = (s.freqSvc!=='SEMANAL' && s.freqSvc!=='QUINCENAL' && s.diaPago) ? ' · día '+s.diaPago : '';
     return `<div class="svc">
@@ -3081,7 +3081,7 @@ window.renderSvc = function(){
               : freqLabel(s.cadacuanto||1);
     // Sub-label: usar S/Q según el modo del usuario
     const subLetra = S.modo==='SEMANAL' ? 'S' : 'Q';
-    const sublbl = calc && calc.nTotal>1 ? `${subLetra}${calc.quincenaActual}/${calc.nTotal}` : '';
+    const sublbl = calc && calc.nTotal>=1 ? `${subLetra}${calc.quincenaActual}/${calc.nTotal}` : '';
     const proxFecha = calcProxPagoSvc(s);
     // Solo mostrar día N en MENSUAL+ (no en SEMANAL ni QUINCENAL)
     const diaInfo = (s.freqSvc!=='SEMANAL' && s.freqSvc!=='QUINCENAL' && s.diaPago) ? ' · día '+s.diaPago : '';

@@ -1926,7 +1926,8 @@ function renderSvc(){
     const freq = s.freqSvc==='SEMANAL' ? 'Semanal'+(s.diaSemana?' · '+s.diaSemana:'')
               : s.freqSvc==='QUINCENAL' ? 'Quincenal'
               : freqLabel(s.cadacuanto||1);
-    const sublbl = calc && calc.nTotal>1 ? `Q${calc.quincenaActual}/${calc.nTotal}` : '';
+    const subLetra = S.modo==='SEMANAL' ? 'S' : 'Q';
+    const sublbl = calc && calc.nTotal>1 ? `${subLetra}${calc.quincenaActual}/${calc.nTotal}` : '';
     const proxFecha = calcProxPagoSvc(s);
     const diaInfo = (s.freqSvc!=='SEMANAL' && s.freqSvc!=='QUINCENAL' && s.diaPago) ? ' · día '+s.diaPago : '';
     return `<div class="svc">
@@ -2770,9 +2771,15 @@ function guardarOtro(){
   const fecha=id('otros-f').value;
   if(!c||!m){alert('Concepto y monto son requeridos');return;}
   if(!fecha){alert('La fecha es requerida');return;}
-  const hoy=new Date(); hoy.setHours(0,0,0,0);
-  const f=new Date(fecha+'T12:00:00'); f.setHours(0,0,0,0);
-  if(f>hoy){alert('La fecha no puede ser futura');return;}
+  // Comparar como strings YYYY-MM-DD para evitar problemas de zona horaria
+  const hoyStr = (function(){
+    const h = new Date();
+    const y = h.getFullYear();
+    const m2 = String(h.getMonth()+1).padStart(2,'0');
+    const d = String(h.getDate()).padStart(2,'0');
+    return `${y}-${m2}-${d}`;
+  })();
+  if(fecha > hoyStr){alert('La fecha no puede ser futura');return;}
   const fijoMode=id('otros-fijo').value;
   const gasto={
     concepto:c, monto:m, fecha,
@@ -3068,17 +3075,28 @@ window.renderSvc = function(){
   }
   list.innerHTML = S.servicios.map((s,i)=>{
     const calc = calcSvcEnPeriodo(s);
-    const freq = freqLabel(s.cadacuanto||1);
-    const sublbl = calc ? `Q${calc.quincenaActual}/${calc.nTotal}` : '';
+    // Respetar freqSvc: SEMANAL / QUINCENAL / MENSUAL+
+    const freq = s.freqSvc==='SEMANAL' ? 'Semanal'+(s.diaSemana?' · '+s.diaSemana:'')
+              : s.freqSvc==='QUINCENAL' ? 'Quincenal'
+              : freqLabel(s.cadacuanto||1);
+    // Sub-label: usar S/Q según el modo del usuario
+    const subLetra = S.modo==='SEMANAL' ? 'S' : 'Q';
+    const sublbl = calc && calc.nTotal>1 ? `${subLetra}${calc.quincenaActual}/${calc.nTotal}` : '';
     const proxFecha = calcProxPagoSvc(s);
+    // Solo mostrar día N en MENSUAL+ (no en SEMANAL ni QUINCENAL)
+    const diaInfo = (s.freqSvc!=='SEMANAL' && s.freqSvc!=='QUINCENAL' && s.diaPago) ? ' · día '+s.diaPago : '';
+    // Monto a la derecha: SEMANAL/QUINCENAL no es "/mes"
+    const montoLbl = s.freqSvc==='SEMANAL' ? '/sem'
+                  : s.freqSvc==='QUINCENAL' ? '/quinc'
+                  : ((s.cadacuanto||1)>1?'/'+s.cadacuanto+'m':'/mes');
     return `<div class="svc">
       <div class="svc-info">
         <div class="svc-name">${s.concepto}</div>
-        <div class="svc-sub">${freq}${s.diaPago?' · día '+s.diaPago:''}${sublbl?' · '+sublbl:''}</div>
-        ${proxFecha?`<div style="font-size:10px;color:var(--text3);margin-top:1px">Próx. pago: ${proxFecha}</div>`:''}
+        <div class="svc-sub">${freq}${diaInfo}${sublbl?' · '+sublbl:''}</div>
+        ${proxFecha?`<div style="font-size:11px;color:var(--text2);margin-top:3px">Próximo pago: <strong style="color:var(--text)">${proxFecha}</strong></div>`:''}
       </div>
       <div class="svc-right">
-        <div style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--text2)">${mxn(s.monto)}/${(s.cadacuanto||1)>1?s.cadacuanto+'m':'mes'}</div>
+        <div style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--text2)">${mxn(s.monto)}${montoLbl}</div>
         <div style="font-size:11px;color:var(--teal);margin-top:2px">-${mxn(calc?calc.pagoQuincena:0)} / ${label}</div>
       </div>
       <span class="ch-del" onclick="borrarSvc(${i})">×</span>
@@ -4363,8 +4381,20 @@ function generarNotificacionesRaw(){
     });
   }
 
+  // Helper: obtiene la fecha desde la cual una deuda/tanda empieza a generar notifs
+  // Usa fechaAgregado si existe, si no usa ini. Pagos anteriores se ignoran (eran "históricos").
+  function fechaCorteNotif(d){
+    const baseStr = d.fechaAgregado || d.ini;
+    if(!baseStr) return null;
+    const f = new Date(baseStr+'T12:00:00');
+    f.setHours(0,0,0,0);
+    return f;
+  }
+
   // ── DEUDAS ──
   S.deudas.forEach(d => {
+    const fCorte = fechaCorteNotif(d);
+
     if(d.tipo === 'tanda'){
       // Tanda: una notif por número (excepto el premio, que es noti aparte)
       // Generar fechas de números próximos (los siguientes 60 días para no saturar)
@@ -4373,6 +4403,8 @@ function generarNotificacionesRaw(){
         const f = new Date(fIni);
         f.setDate(fIni.getDate() + (n-1)*7);
         f.setHours(0,0,0,0);
+        // Ignorar pagos anteriores a la fecha en que se agregó la deuda
+        if(fCorte && f < fCorte) continue;
         // Solo nos interesan las cercanas (60 días en cada dirección por margen)
         const dDias = _diasEntre(hoy, f);
         if(dDias < -30 || dDias > 60) continue;
@@ -4418,6 +4450,8 @@ function generarNotificacionesRaw(){
         }
       }
       fechas.forEach((f, idx) => {
+        // Ignorar pagos anteriores a fechaAgregado
+        if(fCorte && f < fCorte) return;
         const dDias = _diasEntre(hoy, f);
         if(dDias < -30 || dDias > 60) return;
         const plazoNum = idx + 1;
@@ -4437,6 +4471,8 @@ function generarNotificacionesRaw(){
         const maxD = new Date(tY, tM+1, 0).getDate();
         const f = new Date(tY, tM, Math.min(diaPago, maxD));
         f.setHours(0,0,0,0);
+        // Ignorar pagos anteriores a fechaAgregado
+        if(fCorte && f < fCorte) continue;
         const dDias = _diasEntre(hoy, f);
         if(dDias < -30 || dDias > 60) continue;
         const plazoNum = n + 1;

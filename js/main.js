@@ -5061,7 +5061,28 @@ async function guardarDivisaCambio(){
   const periodoLbl = (PERIODOS[S.periodoIdx] && PERIODOS[S.periodoIdx].lbl) || '';
 
   try {
-    // 1) Registrar el cambio en divisas_movs (monto_usd negativo)
+    // 1) PRIMERO: guardar el Extra para obtener su ID
+    const extraConcepto = `Cambio de dólares (${divisasFmtUSD(usd)} a $${tcAplicado.toFixed(2)} MXN/USD)`;
+    let extraId = null;
+    try {
+      const {data:extraData} = await supa.from('extras').insert({
+        user_id: UID, concepto: extraConcepto, monto: mxn,
+        descripcion: '', fecha: f,
+        periodo_idx: S.periodoIdx
+      }).select().single();
+      if(extraData) extraId = extraData.id;
+      // Reflejar en S.extras (memoria)
+      if(!S.extras) S.extras = [];
+      S.extras.push({
+        id: extraId,
+        concepto: extraConcepto,
+        monto: mxn,
+        desc: '',
+        fecha: f
+      });
+    } catch(e){ console.warn('crear extra cambio:', e); }
+
+    // 2) DESPUÉS: registrar el cambio en divisas_movs con el extra_id vinculado
     await supa.from('divisas_movs').insert({
       user_id: UID, tipo: 'cambio',
       concepto: `Cambio USD→MXN`,
@@ -5070,41 +5091,57 @@ async function guardarDivisaCambio(){
       tc_aplicado: tcAplicado,
       tc_mercado: tcMercado,
       fecha: f,
-      periodo_lbl: periodoLbl
+      periodo_lbl: periodoLbl,
+      extra_id: extraId,
+      periodo_idx: S.periodoIdx
     });
-    // 2) Agregar como Extra del periodo actual
-    const extraConcepto = `Cambio de dólares (${divisasFmtUSD(usd)} a $${tcAplicado.toFixed(2)} MXN/USD)`;
-    const extraObj = {
-      concepto: extraConcepto,
-      monto: mxn,
-      desc: '',
-      fecha: f
-    };
-    // Insertar en S.extras (memoria) y persistir en BD usando saveExt (función real)
-    if(!S.extras) S.extras = [];
-    S.extras.push(extraObj);
-    if(typeof saveExt === 'function'){
-      await saveExt(extraObj);
-    } else {
-      try {
-        await supa.from('extras').insert({
-          user_id: UID, concepto: extraConcepto, monto: mxn,
-          descripcion: '', fecha: f,
-          periodo_idx: S.periodoIdx
-        });
-      } catch(e){ console.warn('extra fallback:', e); }
-    }
 
     closeModal('m-divisa-cambio');
     await renderDivisas();
     if(typeof window.renderExt === 'function') window.renderExt();
     renderPrincipal();
-    alert(`Cambio registrado:\n${divisasFmtUSD(usd)} → ${divisasFmtMXN(mxn)}\nAgregado a tus Extras del periodo ${periodoLbl}`);
+    alert(`✅ Cambio registrado:\n${divisasFmtUSD(usd)} → ${divisasFmtMXN(mxn)}\nAgregado a tus Extras del periodo ${periodoLbl}`);
   } catch(e){ console.warn('guardar cambio:', e); alert('Error al guardar el cambio'); }
 }
 
 async function borrarDivisaMov(id){
-  if(!confirm('¿Eliminar este movimiento? Esto NO afecta los extras ya registrados en tus periodos.')) return;
+  // Buscar el movimiento en cache para saber si es 'cambio' y tiene extra vinculado
+  const mov = DIVISAS_MOVS.find(m => m.id === id);
+  if(!mov){
+    if(!confirm('¿Eliminar este movimiento?')) return;
+  } else if(mov.tipo === 'cambio' && mov.extra_id){
+    // Es un cambio con extra vinculado: preguntar qué hacer con el extra
+    const periodoTxt = mov.periodo_lbl ? ` del periodo ${mov.periodo_lbl}` : '';
+    const monto = parseFloat(mov.monto_mxn||0).toLocaleString('es-MX',{minimumFractionDigits:2});
+    const r = confirm(
+      `Vas a borrar este cambio. Los ${divisasFmtUSD(Math.abs(mov.monto_usd))} volverán a tu acumulado.\n\n` +
+      `⚠️ También se agregó un extra de MXN $${monto}${periodoTxt}.\n\n` +
+      `¿Quieres ELIMINAR también ese extra?\n\n` +
+      `Aceptar = borrar también el extra (recomendado)\n` +
+      `Cancelar = solo borrar el movimiento (el extra queda)`
+    );
+    try {
+      if(r){
+        // Borrar también el extra vinculado
+        await supa.from('extras').delete().eq('id', mov.extra_id);
+        // Quitar de S.extras en memoria
+        if(S.extras){
+          S.extras = S.extras.filter(e => e.id !== mov.extra_id);
+        }
+      }
+      await supa.from('divisas_movs').delete().eq('id', id);
+      await renderDivisas();
+      if(typeof window.renderExt === 'function') window.renderExt();
+      renderPrincipal();
+    } catch(e){ console.warn('borrar mov divisa:', e); alert('Error al borrar'); }
+    return;
+  } else if(mov.tipo === 'ingreso'){
+    if(!confirm(`¿Eliminar este ingreso de ${divisasFmtUSD(mov.monto_usd)}?`)) return;
+  } else {
+    if(!confirm('¿Eliminar este movimiento?')) return;
+  }
+
+  // Caso simple: ingreso o movimiento sin vínculo
   try {
     await supa.from('divisas_movs').delete().eq('id', id);
     await renderDivisas();

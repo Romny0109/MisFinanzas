@@ -1876,6 +1876,11 @@ function renderPrincipal(){
   if(togFijo) togFijo.classList.toggle('on', S.sueldoFijo);
   const togFijoDt = id('tog-fijo-dt');
   if(togFijoDt) togFijoDt.classList.toggle('on', S.sueldoFijo);
+
+  // Actualizar tarjeta de USD del dashboard si la sección Divisas está activa
+  if(S.secciones && S.secciones.divisas === true && typeof renderDivisas === 'function'){
+    renderDivisas().catch(()=>{});
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -4841,25 +4846,48 @@ function abrirNotificaciones(){
 //  - 'cambio':  resta USD del acumulado y registra MXN recibidos.
 //               El monto MXN se agrega también como Extra del periodo actual.
 //
-// Tipo de cambio en tiempo real: API de frankfurter.app (gratis, sin key).
+// Tipo de cambio en tiempo real: APIs públicas con CORS habilitado.
+// Primaria: open.er-api.com (gratis, sin key, CORS OK)
+// Fallback: exchangerate.host (gratis, CORS OK)
 
 let DIVISAS_MOVS = [];     // movimientos cargados desde Supabase
 let TC_USD_MXN  = null;    // tipo de cambio actual
 let TC_LAST_FETCH = 0;     // timestamp del último fetch (cache 30 min)
+let TC_FUENTE = '';        // qué fuente se usó
 
 async function divisasFetchTC(){
   // Cache: 30 minutos
   const ahora = Date.now();
   if(TC_USD_MXN && ahora - TC_LAST_FETCH < 30*60*1000) return TC_USD_MXN;
+
+  // Intento 1: open.er-api.com (CORS OK, sin key)
   try {
-    const r = await fetch('https://api.frankfurter.app/latest?from=USD&to=MXN');
-    if(!r.ok) throw new Error('No OK');
-    const j = await r.json();
-    if(j && j.rates && j.rates.MXN){
-      TC_USD_MXN = j.rates.MXN;
-      TC_LAST_FETCH = ahora;
+    const r = await fetch('https://open.er-api.com/v6/latest/USD');
+    if(r.ok){
+      const j = await r.json();
+      if(j && j.rates && j.rates.MXN){
+        TC_USD_MXN = j.rates.MXN;
+        TC_LAST_FETCH = ahora;
+        TC_FUENTE = 'open.er-api.com';
+        return TC_USD_MXN;
+      }
     }
-  } catch(e){ console.warn('TC fetch:', e); }
+  } catch(e){ console.warn('TC fetch (open.er-api):', e); }
+
+  // Intento 2: exchangerate.host (CORS OK)
+  try {
+    const r = await fetch('https://api.exchangerate.host/latest?base=USD&symbols=MXN');
+    if(r.ok){
+      const j = await r.json();
+      if(j && j.rates && j.rates.MXN){
+        TC_USD_MXN = j.rates.MXN;
+        TC_LAST_FETCH = ahora;
+        TC_FUENTE = 'exchangerate.host';
+        return TC_USD_MXN;
+      }
+    }
+  } catch(e){ console.warn('TC fetch (exchangerate.host):', e); }
+
   return TC_USD_MXN;
 }
 
@@ -4898,7 +4926,7 @@ async function renderDivisas(){
   const elT = document.getElementById('div-tc-info');
   if(elU) elU.textContent = divisasFmtUSD(acum);
   if(elM) elM.textContent = '≈ ' + divisasFmtMXN(acumMxn);
-  if(elT) elT.textContent = tc ? `Tipo de cambio: $${tc.toFixed(4)} MXN/USD (frankfurter.app)` : 'Tipo de cambio: no disponible';
+  if(elT) elT.textContent = tc ? `Tipo de cambio: $${tc.toFixed(4)} MXN/USD (${TC_FUENTE||'API'})` : 'Tipo de cambio: no disponible';
 
   // Tarjeta chiquita en dashboard
   const dCard = document.getElementById('dash-usd-card');

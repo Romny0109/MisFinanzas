@@ -2321,8 +2321,8 @@ function abrirConfig(){
   if(id('cfg-dia')) id('cfg-dia').value = diaActual;
   onModoChange();
   // Sincronizar checkboxes de secciones con el estado actual
-  if(!S.secciones) S.secciones = {extras:true,servicios:true,tdc:true,msi:true,deudas:true,otros:true,ahorro:true};
-  ['servicios','extras','tdc','msi','deudas','otros','ahorro'].forEach(key => {
+  if(!S.secciones) S.secciones = {extras:true,servicios:true,tdc:true,msi:true,deudas:true,otros:true,divisas:false,ahorro:true};
+  ['servicios','extras','tdc','msi','deudas','otros','divisas','ahorro'].forEach(key => {
     const chk = document.getElementById('sec-' + key);
     if(chk) chk.checked = S.secciones[key] !== false;
   });
@@ -2330,7 +2330,7 @@ function abrirConfig(){
   aplicarFontSize(S.fontSize || 0);
   // Set section checkboxes
   const secs = S.secciones || {};
-  ['servicios','extras','tdc','msi','deudas','otros','ahorro'].forEach(k=>{
+  ['servicios','extras','tdc','msi','deudas','otros','divisas','ahorro'].forEach(k=>{
     const cb = id('sec-'+k);
     if(cb) cb.checked = secs[k] !== false;
   });
@@ -2385,12 +2385,15 @@ function aplicarFontSize(level){
 }
 function aplicarSecciones(){
   const secs = S.secciones || {};
-  const tabMap = {servicios:1,extras:2,tdc:3,msi:4,deudas:5,otros:6,ahorro:7};
+  // Indices según el orden de los .tab en el HTML mobile
+  // (principal=0, servicios=1, extras=2, tdc=3, msi=4, deudas=5, otros=6, divisas=7, ahorro=8)
+  const tabMap = {servicios:1,extras:2,tdc:3,msi:4,deudas:5,otros:6,divisas:7,ahorro:8};
   const tabs = document.querySelectorAll('.tab');
   const sbTabs = document.querySelectorAll('.sb-tab');
 
   Object.keys(tabMap).forEach(k=>{
-    const visible = secs[k] !== false;
+    // Para divisas: por defecto OFF (opt-in)
+    const visible = k === 'divisas' ? (secs[k] === true) : (secs[k] !== false);
     // Mobile tabs
     if(tabs[tabMap[k]]) tabs[tabMap[k]].style.display = visible ? '' : 'none';
     // Sidebar tabs
@@ -2407,6 +2410,11 @@ function aplicarSecciones(){
       const row = el.closest('.row');
       if(row) row.style.display = visible ? '' : 'none';
     }
+    // Tarjeta chiquita de USD en dashboard
+    if(k === 'divisas'){
+      const dCard = document.getElementById('dash-usd-card');
+      if(dCard && !visible) dCard.style.display = 'none';
+    }
   });
 
   // If current tab is hidden, go to principal
@@ -2421,7 +2429,7 @@ function guardarConfig(){
   S.tema = id('cfg-tema').value;
   S.zonaHoraria = id('cfg-tz').value;
   // Read section checkboxes
-  ['servicios','extras','tdc','msi','deudas','otros','ahorro'].forEach(k=>{
+  ['servicios','extras','tdc','msi','deudas','otros','divisas','ahorro'].forEach(k=>{
     const cb = id('sec-'+k);
     if(cb) S.secciones[k] = cb.checked;
   });
@@ -4822,3 +4830,277 @@ function abrirNotificaciones(){
   // Refrescar cada 60 segundos por si pasa el día
   setInterval(actualizarBadgeNotif, 60000);
 })();
+
+
+// ═══════════════════════════════════════════════════════════════
+// ═══ DIVISAS (Dólares) ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+//
+// Movimientos:
+//  - 'ingreso': agrega USD al acumulado (propinas, regalos, etc.)
+//  - 'cambio':  resta USD del acumulado y registra MXN recibidos.
+//               El monto MXN se agrega también como Extra del periodo actual.
+//
+// Tipo de cambio en tiempo real: API de frankfurter.app (gratis, sin key).
+
+let DIVISAS_MOVS = [];     // movimientos cargados desde Supabase
+let TC_USD_MXN  = null;    // tipo de cambio actual
+let TC_LAST_FETCH = 0;     // timestamp del último fetch (cache 30 min)
+
+async function divisasFetchTC(){
+  // Cache: 30 minutos
+  const ahora = Date.now();
+  if(TC_USD_MXN && ahora - TC_LAST_FETCH < 30*60*1000) return TC_USD_MXN;
+  try {
+    const r = await fetch('https://api.frankfurter.app/latest?from=USD&to=MXN');
+    if(!r.ok) throw new Error('No OK');
+    const j = await r.json();
+    if(j && j.rates && j.rates.MXN){
+      TC_USD_MXN = j.rates.MXN;
+      TC_LAST_FETCH = ahora;
+    }
+  } catch(e){ console.warn('TC fetch:', e); }
+  return TC_USD_MXN;
+}
+
+async function cargarDivisasMovs(){
+  if(typeof UID === 'undefined' || !UID) return;
+  try {
+    const {data} = await supa.from('divisas_movs').select('*').eq('user_id', UID).order('fecha', {ascending:false}).order('created_at', {ascending:false});
+    DIVISAS_MOVS = data || [];
+  } catch(e){ console.warn('cargar divisas:', e); }
+}
+
+function divisasAcumuladoUSD(){
+  return DIVISAS_MOVS.reduce((a, m) => a + parseFloat(m.monto_usd||0), 0);
+}
+
+function divisasFmtUSD(v){
+  return 'USD $' + (parseFloat(v)||0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function divisasFmtMXN(v){
+  return 'MXN $' + (parseFloat(v)||0).toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+async function renderDivisas(){
+  // Asegurar TC y movimientos cargados
+  await divisasFetchTC();
+  await cargarDivisasMovs();
+
+  const acum = divisasAcumuladoUSD();
+  const tc = TC_USD_MXN || 0;
+  const acumMxn = acum * tc;
+
+  // Tarjeta principal en sección Divisas
+  const elU = document.getElementById('div-acum-usd');
+  const elM = document.getElementById('div-acum-mxn');
+  const elT = document.getElementById('div-tc-info');
+  if(elU) elU.textContent = divisasFmtUSD(acum);
+  if(elM) elM.textContent = '≈ ' + divisasFmtMXN(acumMxn);
+  if(elT) elT.textContent = tc ? `Tipo de cambio: $${tc.toFixed(4)} MXN/USD (frankfurter.app)` : 'Tipo de cambio: no disponible';
+
+  // Tarjeta chiquita en dashboard
+  const dCard = document.getElementById('dash-usd-card');
+  const dM = document.getElementById('dash-usd-monto');
+  const dX = document.getElementById('dash-usd-mxn');
+  if(dCard){
+    const visible = S.secciones && S.secciones.divisas && acum > 0;
+    dCard.style.display = visible ? '' : 'none';
+    if(visible){
+      if(dM) dM.textContent = divisasFmtUSD(acum);
+      if(dX) dX.textContent = '≈ ' + divisasFmtMXN(acumMxn);
+    }
+  }
+
+  // Historial
+  const list = document.getElementById('div-hist-list');
+  if(!list) return;
+  if(!DIVISAS_MOVS.length){
+    list.innerHTML = '<div class="empty"><div class="empty-icon">—</div>Sin movimientos aún</div>';
+    return;
+  }
+  list.innerHTML = DIVISAS_MOVS.map(m => {
+    const f = new Date(m.fecha+'T12:00:00');
+    const fechaStr = f.toLocaleDateString('es-MX', {weekday:'short', day:'2-digit', month:'short', year:'numeric'});
+    const usd = parseFloat(m.monto_usd||0);
+    if(m.tipo === 'ingreso'){
+      return `<div style="border-left:3px solid var(--green);background:var(--card);padding:10px 12px;border-radius:0 8px 8px 0;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;color:var(--green);font-weight:700">🟢 Ingreso · ${fechaStr}</div>
+          <div style="font-size:13px;color:var(--text);margin-top:2px">${m.concepto || 'Ingreso de dólares'}</div>
+          ${m.periodo_lbl ? `<div style="font-size:11px;color:var(--text2);margin-top:2px">Periodo: ${m.periodo_lbl}</div>` : ''}
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:14px;font-weight:800;color:var(--green);font-family:var(--mono)">+${divisasFmtUSD(usd)}</div>
+          <span class="ch-del" style="font-size:14px;cursor:pointer" onclick="borrarDivisaMov(${m.id})">×</span>
+        </div>
+      </div>`;
+    }
+    // Cambio
+    const mxn = parseFloat(m.monto_mxn||0);
+    const tcAp = parseFloat(m.tc_aplicado||0);
+    const tcMer = parseFloat(m.tc_mercado||0);
+    const dif = tcMer && tcAp ? (mxn - (Math.abs(usd) * tcMer)) : null;
+    return `<div style="border-left:3px solid var(--blue);background:var(--card);padding:10px 12px;border-radius:0 8px 8px 0;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;color:var(--blue);font-weight:700">💱 Cambio a MXN · ${fechaStr}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:3px">Cambiaste: <strong style="color:var(--text)">${divisasFmtUSD(Math.abs(usd))}</strong></div>
+          <div style="font-size:11px;color:var(--text2)">Recibiste: <strong style="color:var(--green)">${divisasFmtMXN(mxn)}</strong></div>
+          <div style="font-size:11px;color:var(--text2)">Tipo aplicado: <strong>$${tcAp.toFixed(4)}</strong> MXN/USD ${tcMer?` · Mercado ese día: <strong>$${tcMer.toFixed(4)}</strong>`:''}</div>
+          ${dif !== null ? `<div style="font-size:11px;color:${dif>=0?'var(--green)':'var(--red)'};margin-top:2px">Diferencia: <strong>${dif>=0?'+':''}${divisasFmtMXN(dif).replace('MXN $','$')} MXN</strong></div>` : ''}
+          ${m.periodo_lbl ? `<div style="font-size:11px;color:var(--text2);margin-top:3px">Agregado a extras del periodo: ${m.periodo_lbl}</div>` : ''}
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:13px;color:var(--red);font-family:var(--mono);font-weight:700">${divisasFmtUSD(usd)}</div>
+          <span class="ch-del" style="font-size:14px;cursor:pointer" onclick="borrarDivisaMov(${m.id})">×</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function abrirAgregarDivisa(){
+  document.getElementById('div-add-concepto').value = '';
+  document.getElementById('div-add-monto').value = '';
+  document.getElementById('div-add-fecha').value = todayStr();
+  openModal('m-divisa-add');
+}
+
+async function guardarDivisaIngreso(){
+  const c = document.getElementById('div-add-concepto').value.trim();
+  const m = parseFloat(document.getElementById('div-add-monto').value)||0;
+  const f = document.getElementById('div-add-fecha').value;
+  if(!c){ alert('Concepto requerido'); return; }
+  if(!m || m<=0){ alert('Monto debe ser mayor a 0'); return; }
+  if(!f){ alert('Fecha requerida'); return; }
+  // Validar que la fecha no sea futura
+  const hoyStr = todayStr();
+  if(f > hoyStr){ alert('La fecha no puede ser futura'); return; }
+
+  const periodoLbl = (PERIODOS[S.periodoIdx] && PERIODOS[S.periodoIdx].lbl) || '';
+  try {
+    await supa.from('divisas_movs').insert({
+      user_id: UID, tipo: 'ingreso', concepto: c, monto_usd: m,
+      fecha: f, periodo_lbl: periodoLbl
+    });
+    closeModal('m-divisa-add');
+    await renderDivisas();
+    renderPrincipal();
+  } catch(e){ console.warn('guardar divisa:', e); alert('Error al guardar'); }
+}
+
+async function abrirCambioDivisa(){
+  await divisasFetchTC();
+  const acum = divisasAcumuladoUSD();
+  if(acum <= 0){ alert('No tienes dólares acumulados para cambiar'); return; }
+  document.getElementById('cb-acum').textContent = divisasFmtUSD(acum);
+  document.getElementById('cb-usd').value = '';
+  document.getElementById('cb-mxn').value = '';
+  document.getElementById('cb-fecha').value = todayStr();
+  document.getElementById('cb-preview').style.display = 'none';
+  openModal('m-divisa-cambio');
+}
+
+function actualizarPreviewCambio(){
+  const usd = parseFloat(document.getElementById('cb-usd').value)||0;
+  const tc = TC_USD_MXN || 0;
+  const preview = document.getElementById('cb-preview');
+  if(usd > 0 && tc > 0){
+    preview.style.display = '';
+    document.getElementById('cb-tc-mercado').textContent = `$${tc.toFixed(4)} MXN/USD`;
+    document.getElementById('cb-aprox').textContent = divisasFmtMXN(usd * tc);
+  } else {
+    preview.style.display = 'none';
+  }
+}
+
+async function guardarDivisaCambio(){
+  const usd = parseFloat(document.getElementById('cb-usd').value)||0;
+  const mxn = parseFloat(document.getElementById('cb-mxn').value)||0;
+  const f   = document.getElementById('cb-fecha').value;
+  const acum = divisasAcumuladoUSD();
+  if(!usd || usd<=0){ alert('Indica cuántos USD vas a cambiar'); return; }
+  if(usd > acum){ alert(`Solo tienes ${divisasFmtUSD(acum)} acumulados`); return; }
+  if(!mxn || mxn<=0){ alert('Indica cuántos MXN te dieron realmente'); return; }
+  if(!f){ alert('Fecha requerida'); return; }
+  const hoyStr = todayStr();
+  if(f > hoyStr){ alert('La fecha no puede ser futura'); return; }
+
+  const tcAplicado = mxn / usd;
+  const tcMercado  = TC_USD_MXN || null;
+  const periodoLbl = (PERIODOS[S.periodoIdx] && PERIODOS[S.periodoIdx].lbl) || '';
+
+  try {
+    // 1) Registrar el cambio en divisas_movs (monto_usd negativo)
+    await supa.from('divisas_movs').insert({
+      user_id: UID, tipo: 'cambio',
+      concepto: `Cambio USD→MXN`,
+      monto_usd: -Math.abs(usd),
+      monto_mxn: mxn,
+      tc_aplicado: tcAplicado,
+      tc_mercado: tcMercado,
+      fecha: f,
+      periodo_lbl: periodoLbl
+    });
+    // 2) Agregar como Extra del periodo actual
+    const extraConcepto = `Cambio de dólares (${divisasFmtUSD(usd)} a $${tcAplicado.toFixed(2)} MXN/USD)`;
+    const extraObj = {
+      concepto: extraConcepto,
+      monto: mxn,
+      desc: '',
+      fecha: f
+    };
+    // Insertar en S.extras (memoria) y persistir en BD usando saveExt (función real)
+    if(!S.extras) S.extras = [];
+    S.extras.push(extraObj);
+    if(typeof saveExt === 'function'){
+      await saveExt(extraObj);
+    } else {
+      try {
+        await supa.from('extras').insert({
+          user_id: UID, concepto: extraConcepto, monto: mxn,
+          descripcion: '', fecha: f,
+          periodo_idx: S.periodoIdx
+        });
+      } catch(e){ console.warn('extra fallback:', e); }
+    }
+
+    closeModal('m-divisa-cambio');
+    await renderDivisas();
+    if(typeof window.renderExt === 'function') window.renderExt();
+    renderPrincipal();
+    alert(`Cambio registrado:\n${divisasFmtUSD(usd)} → ${divisasFmtMXN(mxn)}\nAgregado a tus Extras del periodo ${periodoLbl}`);
+  } catch(e){ console.warn('guardar cambio:', e); alert('Error al guardar el cambio'); }
+}
+
+async function borrarDivisaMov(id){
+  if(!confirm('¿Eliminar este movimiento? Esto NO afecta los extras ya registrados en tus periodos.')) return;
+  try {
+    await supa.from('divisas_movs').delete().eq('id', id);
+    await renderDivisas();
+    renderPrincipal();
+  } catch(e){ console.warn('borrar mov divisa:', e); }
+}
+
+// Inicialización: cargar al inicio y refrescar TC cada 30 min
+(async function initDivisas(){
+  const waitUID = () => new Promise(r => {
+    const t = setInterval(() => { if(typeof UID !== 'undefined' && UID){ clearInterval(t); r(); } }, 100);
+    setTimeout(() => { clearInterval(t); r(); }, 15000);
+  });
+  await waitUID();
+  await cargarDivisasMovs();
+  await divisasFetchTC();
+  // Render inicial si está visible
+  if(typeof renderDivisas === 'function') renderDivisas().catch(console.warn);
+  // Refrescar TC cada 30 min
+  setInterval(() => { divisasFetchTC().then(() => renderDivisas().catch(()=>{})); }, 30*60*1000);
+})();
+
+// Re-render divisas al entrar a la sección
+document.addEventListener('click', function(e){
+  const btn = e.target.closest('[data-tab="divisas"], button[onclick*="\'divisas\'"]');
+  if(btn){ setTimeout(() => renderDivisas().catch(()=>{}), 50); }
+});

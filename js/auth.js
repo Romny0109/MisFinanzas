@@ -83,11 +83,10 @@ async function loginLocal(){
 }
 
 function registrarSessionListeners(){
-  // Cerrar sesión al cerrar pestaña/navegador
-  window.addEventListener('beforeunload', ()=>{
-    localStorage.removeItem('mf_session');
-  });
   // Inactividad — cerrar sesión tras 15 min
+  // (Antes había un beforeunload que cerraba sesión al recargar la página,
+  // pero eso no es deseable: el usuario espera que al recargar siga logueado.
+  // La sesión solo se cierra por inactividad o al hacer click en "Cerrar sesión".)
   let inactivityTimer;
   function resetInactivityTimer(){
     clearTimeout(inactivityTimer);

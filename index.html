@@ -80,6 +80,7 @@
   <button class="sb-tab" data-tab="msi" onclick="goSidebar('msi',this)"><span class="ti">·</span>MSI</button>
   <button class="sb-tab" data-tab="deudas" onclick="goSidebar('deudas',this)"><span class="ti">·</span>Deudas</button>
   <button class="sb-tab" data-tab="otros" onclick="goSidebar('otros',this)"><span class="ti">·</span>Otros</button>
+  <button class="sb-tab" data-tab="divisas" onclick="goSidebar('divisas',this)"><span class="ti">·</span>Divisas</button>
   <button class="sb-tab" data-tab="ahorro" onclick="goSidebar('ahorro',this)"><span class="ti">·</span>Ahorro</button>
   <div class="sb-alert pending" id="sb-alert">Cargando...</div>
   <div id="sb-user-info"></div>
@@ -126,6 +127,7 @@
     <button class="tab" onclick="goTab('msi',this)">MSI</button>
     <button class="tab" onclick="goTab('deudas',this)">Deudas</button>
     <button class="tab" onclick="goTab('otros',this)">Otros</button>
+    <button class="tab" onclick="goTab('divisas',this)">Divisas</button>
     <button class="tab" onclick="goTab('ahorro',this)">Ahorro</button>
   </div>
 
@@ -188,6 +190,23 @@
       <div class="period-close-btns">
         <button class="btn btn-g btn-sm" style="flex:1" onclick="editarAntesCerrar()">Editar antes</button>
         <button class="btn btn-success btn-sm" style="flex:2" onclick="cerrarPeriodo()">Guardar y continuar</button>
+      </div>
+    </div>
+
+    <!-- Tarjeta chiquita: Acumulado USD (solo si la sección Divisas está activa) -->
+    <div id="dash-usd-card" data-section="divisas" style="display:none;background:linear-gradient(90deg, rgba(34,197,94,.10), rgba(74,222,128,.04));border:1px solid var(--green);border-radius:10px;padding:10px 14px;margin-bottom:12px;cursor:pointer" onclick="goSidebar('divisas');goTab('divisas');">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:20px">💵</span>
+          <div>
+            <div style="font-size:11px;color:var(--text2)">Acumulado en dólares</div>
+            <div id="dash-usd-monto" style="font-size:16px;font-weight:800;color:var(--green);font-family:var(--mono)">USD $0.00</div>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div id="dash-usd-mxn" style="font-size:13px;color:var(--text2)">≈ MXN $0.00</div>
+          <div style="font-size:10px;color:var(--text3)">ver más →</div>
+        </div>
       </div>
     </div>
 
@@ -485,6 +504,35 @@
     </div>
   </div>
 
+  <!-- ══ DIVISAS (Dólares) ══ -->
+  <div class="scr" id="scr-divisas">
+    <div class="desktop-topbar" style="display:none">
+      <div class="dt-title">💵 Divisas</div>
+      <div class="dt-date" id="dt-date-div">—</div>
+    </div>
+
+    <!-- Tarjeta principal de acumulado -->
+    <div class="card" style="background:linear-gradient(135deg, rgba(34,197,94,.12), rgba(74,222,128,.05));border-color:var(--green)">
+      <div class="card-hdr"><span>💵 Acumulado</span></div>
+      <div style="text-align:center;padding:12px 8px">
+        <div style="font-size:13px;color:var(--text2);margin-bottom:4px">Tienes en dólares</div>
+        <div id="div-acum-usd" style="font-size:28px;font-weight:800;color:var(--green);font-family:var(--mono)">USD $0.00</div>
+        <div id="div-acum-mxn" style="font-size:14px;color:var(--text2);margin-top:6px">≈ MXN $0.00</div>
+        <div id="div-tc-info" style="font-size:11px;color:var(--text3);margin-top:8px">Tipo de cambio: cargando...</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-g" style="flex:1;background:var(--green);color:#fff;border:none" onclick="abrirAgregarDivisa()">+ Agregar dólares</button>
+        <button class="btn btn-g" style="flex:1;background:var(--blue);color:#fff;border:none" onclick="abrirCambioDivisa()">Cambiar a MXN</button>
+      </div>
+    </div>
+
+    <!-- Historial de movimientos -->
+    <div class="card">
+      <div class="card-hdr"><span>📜 Historial</span></div>
+      <div id="div-hist-list"></div>
+    </div>
+  </div>
+
   <!-- ══ AHORRO ══ -->
   <div class="scr" id="scr-ahorro">
     <div class="desktop-topbar" style="display:none">
@@ -556,6 +604,58 @@
     <div id="notif-list"></div>
     <div class="m-footer">
       <button class="btn btn-g" style="flex:1" onclick="closeModal('m-notif')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Agregar dólares -->
+<div class="overlay" id="m-divisa-add">
+  <div class="modal">
+    <div class="m-handle"></div>
+    <div class="m-title">💵 Agregar dólares</div>
+    <div class="frow"><div class="fg"><div class="fl">Concepto</div>
+      <input type="text" class="fi" id="div-add-concepto" placeholder="Ej: Propinas viernes">
+    </div></div>
+    <div class="frow">
+      <div class="fg"><div class="fl">Monto USD</div>
+        <input type="number" class="fi" id="div-add-monto" placeholder="0.00" step="0.01" min="0">
+      </div>
+      <div class="fg"><div class="fl">Fecha</div>
+        <input type="date" class="fi" id="div-add-fecha">
+      </div>
+    </div>
+    <div class="m-footer">
+      <button class="btn btn-g" style="flex:1" onclick="closeModal('m-divisa-add')">Cancelar</button>
+      <button class="btn btn-p" style="flex:1" onclick="guardarDivisaIngreso()">Agregar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cambiar dólares a MXN -->
+<div class="overlay" id="m-divisa-cambio">
+  <div class="modal">
+    <div class="m-handle"></div>
+    <div class="m-title">💱 Cambiar dólares a pesos</div>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px">
+      <div style="font-size:12px;color:var(--text2)">Tienes acumulado:</div>
+      <div id="cb-acum" style="font-size:18px;font-weight:800;color:var(--green);font-family:var(--mono)">USD $0.00</div>
+    </div>
+    <div class="frow"><div class="fg"><div class="fl">¿Cuántos USD vas a cambiar?</div>
+      <input type="number" class="fi" id="cb-usd" placeholder="0.00" step="0.01" min="0" oninput="actualizarPreviewCambio()">
+    </div></div>
+    <div id="cb-preview" style="background:rgba(79,142,247,.08);border-left:3px solid var(--blue);padding:8px 12px;margin-bottom:12px;font-size:12px;display:none">
+      <div>Tipo de cambio hoy: <strong id="cb-tc-mercado">—</strong></div>
+      <div>Aproximado: <strong id="cb-aprox" style="color:var(--blue)">—</strong></div>
+    </div>
+    <div class="frow"><div class="fg"><div class="fl">¿Cuántos pesos te dieron? (lo que realmente recibiste)</div>
+      <input type="number" class="fi" id="cb-mxn" placeholder="0.00" step="0.01" min="0">
+    </div></div>
+    <div class="frow"><div class="fg"><div class="fl">Fecha del cambio</div>
+      <input type="date" class="fi" id="cb-fecha">
+    </div></div>
+    <div class="m-footer">
+      <button class="btn btn-g" style="flex:1" onclick="closeModal('m-divisa-cambio')">Cancelar</button>
+      <button class="btn btn-p" style="flex:1" onclick="guardarDivisaCambio()">Confirmar cambio</button>
     </div>
   </div>
 </div>
@@ -666,6 +766,7 @@
       <label class="onb-sec"><input type="checkbox" class="onb-sec-chk" data-sec="msi" checked> MSI (meses sin intereses)</label>
       <label class="onb-sec"><input type="checkbox" class="onb-sec-chk" data-sec="deudas" checked> Deudas y Tandas</label>
       <label class="onb-sec"><input type="checkbox" class="onb-sec-chk" data-sec="otros" checked> Otros gastos</label>
+      <label class="onb-sec"><input type="checkbox" class="onb-sec-chk" data-sec="divisas"> Divisas (USD) <span class="onb-sec-desc">(propinas, regalos en dólares)</span></label>
       <label class="onb-sec"><input type="checkbox" class="onb-sec-chk" data-sec="ahorro" checked> Ahorro</label>
 
       <div class="m-footer">
@@ -753,6 +854,7 @@
           <label class="cfg-check"><input type="checkbox" id="sec-msi" checked> MSI</label>
           <label class="cfg-check"><input type="checkbox" id="sec-deudas" checked> Deudas</label>
           <label class="cfg-check"><input type="checkbox" id="sec-otros" checked> Otros</label>
+          <label class="cfg-check"><input type="checkbox" id="sec-divisas"> Divisas (USD)</label>
           <label class="cfg-check"><input type="checkbox" id="sec-ahorro" checked> Ahorro</label>
         </div>
       </div>

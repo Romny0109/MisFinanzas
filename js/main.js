@@ -103,7 +103,8 @@ async function loadFromSupabase(silencioso=false){
       diaPago:r.dia_pago||1, fechaAgregado:r.fecha||'',
       proxPago:r.prox_pago||'',
       freqSvc: r.freq_svc || 'MENSUAL',
-      diaSemana: r.dia_semana || ''
+      diaSemana: r.dia_semana || '',
+      periodoAgregadoLbl: r.periodo_agregado_lbl || ''
     }));
   } catch(e){ console.warn('servicios load fail:', e); }
 
@@ -227,7 +228,8 @@ async function saveSvc(s){
       cadacuanto: s.cadacuanto||1, fecha: s.fechaAgregado||'',
       dia_pago: s.diaPago||1, prox_pago: s.proxPago||'',
       freq_svc: s.freqSvc || 'MENSUAL',
-      dia_semana: s.diaSemana || ''
+      dia_semana: s.diaSemana || '',
+      periodo_agregado_lbl: s.periodoAgregadoLbl || ''
     }).select().single();
     if(data) s.id = data.id;
   } catch(e){ console.warn('saveSvc:', e); }
@@ -1328,7 +1330,7 @@ function movPerteneceAlCicloVisible(tar, fechaMov){
 // Basado en día de la semana (Lunes, Martes, etc.)
 // Sueldo QUINCENAL: acumula las veces que cae ese día en el periodo
 // Sueldo SEMANAL:   regla de anticipación (pFin, pFin+7]
-function calcSvcSemanal(s, pIni, pFin){
+function calcSvcSemanal(s, pIni, pFin, fechaBaseOverride){
   const diasSem = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
   const diaIdx = diasSem.indexOf(s.diaSemana || 'Lunes');
   if(diaIdx < 0) return null;
@@ -1337,8 +1339,14 @@ function calcSvcSemanal(s, pIni, pFin){
   const fAgre = s.fechaAgregado ? new Date(s.fechaAgregado+'T12:00:00') : new Date(hoy);
   fAgre.setHours(0,0,0,0);
 
-  // Base: el MAX entre pIni y fechaAgregado (no cobrar antes de agregar el servicio)
-  const base = fAgre > pIni ? fAgre : pIni;
+  // Si vino fechaBaseOverride (caso: agregado en periodo futuro), úsala como base.
+  // Si no, usa el comportamiento normal: max(pIni, fAgre).
+  const base = fechaBaseOverride
+    ? new Date(fechaBaseOverride)
+    : (fAgre > pIni ? fAgre : pIni);
+  base.setHours(0,0,0,0);
+  // El "no antes de agregar" deja de aplicar cuando hay override (porque fAgre estaría en futuro)
+  const minPermitido = fechaBaseOverride ? base : fAgre;
 
   // Encontrar todas las fechas del día de la semana dentro de [base, pFin]
   // + para modo SEMANAL, rango extendido (pFin, pFin+7]
@@ -1355,10 +1363,10 @@ function calcSvcSemanal(s, pIni, pFin){
   while(cursor <= rangoMax){
     const cur = new Date(cursor); cur.setHours(0,0,0,0);
     if(S.modo === 'QUINCENAL'){
-      if(cur >= pIni && cur <= pFin && cur >= fAgre) fechasEnPeriodo.push(cur);
+      if(cur >= pIni && cur <= pFin && cur >= minPermitido) fechasEnPeriodo.push(cur);
     } else {
       // SEMANAL: anticipación (pFin, pFin+7]
-      if(cur > pFin && cur <= rangoMax && cur >= fAgre) fechasEnPeriodo.push(cur);
+      if(cur > pFin && cur <= rangoMax && cur >= minPermitido) fechasEnPeriodo.push(cur);
     }
     cursor.setDate(cursor.getDate()+7);
   }
@@ -1383,21 +1391,25 @@ function calcSvcSemanal(s, pIni, pFin){
 // Sueldo QUINCENAL: 1 pago por periodo (siempre coincide)
 // Sueldo SEMANAL:   divide entre los días de cobro que caen entre HOY/quincena
 //                   anterior y la fecha del pago
-function calcSvcQuincenal(s, pIni, pFin){
+function calcSvcQuincenal(s, pIni, pFin, fechaBaseOverride){
   const hoy = new Date(); hoy.setHours(0,0,0,0);
   const fAgre = s.fechaAgregado ? new Date(s.fechaAgregado+'T12:00:00') : new Date(hoy);
   fAgre.setHours(0,0,0,0);
 
-  // Generar fechas quincenales (15 y último del mes) a partir de fAgre
+  // Si vino fechaBaseOverride (agregado en periodo futuro), usarla como base
+  const base = fechaBaseOverride ? new Date(fechaBaseOverride) : fAgre;
+  base.setHours(0,0,0,0);
+
+  // Generar fechas quincenales (15 y último del mes) a partir de base
   // hasta unos meses adelante
   const fechasPago = [];
-  let y = fAgre.getFullYear(), m = fAgre.getMonth();
-  let half = fAgre.getDate() <= 15 ? 1 : 2;
+  let y = base.getFullYear(), m = base.getMonth();
+  let half = base.getDate() <= 15 ? 1 : 2;
   for(let i=0; i<60; i++){
     const finMes = new Date(y, m+1, 0).getDate();
     const f = half === 1 ? new Date(y, m, 15) : new Date(y, m, finMes);
     f.setHours(0,0,0,0);
-    if(f >= fAgre) fechasPago.push(f);
+    if(f >= base) fechasPago.push(f);
     half++; if(half>2){ half=1; m++; if(m>11){m=0; y++;} }
     if(fechasPago.length > 30) break;
   }
@@ -1435,7 +1447,10 @@ function calcSvcQuincenal(s, pIni, pFin){
     const fechaPago = fechasPago[i];
     let inicioSeg;
     if(i === 0){
-      inicioSeg = new Date(Math.max(hoy.getTime(), fAgre.getTime()));
+      // Si tenemos override (agregado en futuro), no se considera HOY como mínimo
+      inicioSeg = fechaBaseOverride
+        ? new Date(base)
+        : new Date(Math.max(hoy.getTime(), fAgre.getTime()));
     } else {
       inicioSeg = new Date(fechasPago[i-1]);
       inicioSeg.setDate(inicioSeg.getDate()+1);
@@ -1476,12 +1491,44 @@ function calcSvcEnPeriodo(s){
   const pIni = new Date(p.ini); pIni.setHours(0,0,0,0);
   const pFin = new Date(p.fin); pFin.setHours(0,0,0,0);
 
+  // ── LÓGICA DE FECHA DE INICIO PARA EL CÁLCULO ──
+  // Caso especial: si el usuario AGREGÓ el servicio estando en un periodo
+  // futuro al de HOY, no debe aparecer en periodos anteriores a ese.
+  // Para detectar esto, guardamos `periodoAgregadoLbl` (el lbl del periodo
+  // que estaba seleccionado al crear el servicio).
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  let fechaBase = null;
+  if(s.periodoAgregadoLbl){
+    // Buscar el índice del periodo donde se agregó
+    const idxAgreg = PERIODOS.findIndex(per => per.lbl === s.periodoAgregadoLbl);
+    if(idxAgreg >= 0){
+      // Si el periodo VISIBLE (S.periodoIdx) es ANTERIOR al periodo en que se agregó,
+      // el servicio NO debe aparecer (todavía no existía en ese momento).
+      if(S.periodoIdx < idxAgreg) return null;
+      // Si el periodo visible es EL MISMO o POSTERIOR al de agregado:
+      //   - Si es el periodo de agregado y ese periodo es futuro a HOY: base = pIni
+      //   - Si es periodo posterior al de agregado: base = pIni (lógica normal)
+      //   - Si el periodo de agregado contiene a HOY (caso normal): base = HOY (lógica vieja)
+      let idxHoy = -1;
+      for(let i=0; i<PERIODOS.length; i++){
+        const pi = new Date(PERIODOS[i].ini); pi.setHours(0,0,0,0);
+        const pf = new Date(PERIODOS[i].fin); pf.setHours(0,0,0,0);
+        if(hoy >= pi && hoy <= pf){ idxHoy = i; break; }
+      }
+      // Solo si el periodo de agregado es POSTERIOR al periodo de hoy:
+      // usar inicio del periodo visible como base
+      if(idxHoy >= 0 && idxAgreg > idxHoy){
+        fechaBase = new Date(pIni);
+      }
+    }
+  }
+
   // ── NUEVO: Servicios SEMANAL y QUINCENAL ──
   if(s.freqSvc === 'SEMANAL'){
-    return calcSvcSemanal(s, pIni, pFin);
+    return calcSvcSemanal(s, pIni, pFin, fechaBase);
   }
   if(s.freqSvc === 'QUINCENAL'){
-    return calcSvcQuincenal(s, pIni, pFin);
+    return calcSvcQuincenal(s, pIni, pFin, fechaBase);
   }
 
   // Legacy: servicios sin diaPago usan el cálculo viejo
@@ -1521,11 +1568,15 @@ function calcSvcEnPeriodo(s){
     return d;
   }
 
-  let desdeConteo = new Date(fAgre);
+  let desdeConteo = fechaBase ? new Date(fechaBase) : new Date(fAgre);
+  desdeConteo.setHours(0,0,0,0);
+  // Para getNextPayDate, también usar la base correcta (fechaBase si vino, sino fAgre)
+  const baseParaCiclo = fechaBase ? new Date(fechaBase) : new Date(fAgre);
+  baseParaCiclo.setHours(0,0,0,0);
   let ciclo = 0;
 
   for(let safety = 0; safety < 200; safety++){
-    const limitePago = getNextPayDate(fAgre, ciclo);
+    const limitePago = getNextPayDate(baseParaCiclo, ciclo);
 
     if(limitePago <= desdeConteo){
       ciclo++;
@@ -1921,13 +1972,22 @@ function renderSvc(){
     list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin servicios — agrega el primero</div>';
     id('tot-svc').textContent='$0.00'; return;
   }
-  list.innerHTML = S.servicios.map((s,i)=>{
-    const calc = calcSvcEnPeriodo(s);
+  // Filtrar servicios que no aplican a este periodo (creados en periodo posterior)
+  const visibles = S.servicios.map((s,i)=>({s,i,calc:calcSvcEnPeriodo(s)})).filter(o=>o.calc!==null);
+  if(!visibles.length){
+    list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin servicios activos en este periodo</div>';
+    id('tot-svc').textContent='$0.00'; return;
+  }
+  list.innerHTML = visibles.map(({s,i,calc})=>{
     const freq = s.freqSvc==='SEMANAL' ? 'Semanal'+(s.diaSemana?' · '+s.diaSemana:'')
               : s.freqSvc==='QUINCENAL' ? 'Quincenal'
               : freqLabel(s.cadacuanto||1);
     const subLetra = S.modo==='SEMANAL' ? 'S' : 'Q';
-    const sublbl = calc && calc.nTotal>=1 ? `${subLetra}${calc.quincenaActual}/${calc.nTotal}` : '';
+    // Mostrar S/Q solo cuando aporta info: NO mostrar si freq y modo coinciden trivialmente
+    // (servicio semanal + modo semanal = siempre 1/1, redundante)
+    const ocultarSub = (s.freqSvc==='SEMANAL' && S.modo==='SEMANAL') ||
+                       (s.freqSvc==='QUINCENAL' && S.modo==='QUINCENAL');
+    const sublbl = (!ocultarSub && calc && calc.nTotal>=1) ? `${subLetra}${calc.quincenaActual}/${calc.nTotal}` : '';
     const proxFecha = calcProxPagoSvc(s);
     const diaInfo = (s.freqSvc!=='SEMANAL' && s.freqSvc!=='QUINCENAL' && s.diaPago) ? ' · día '+s.diaPago : '';
     return `<div class="svc">
@@ -2413,15 +2473,17 @@ async function guardarSvc(){
 
   const hoy = new Date(); hoy.setHours(0,0,0,0);
   const fechaAgregado = hoy.toISOString().split('T')[0];
+  // Capturar el periodo en el que está parado el usuario al agregar el servicio
+  const periodoAgregadoLbl = (PERIODOS[S.periodoIdx] && PERIODOS[S.periodoIdx].lbl) || '';
 
   let svc;
   if(v === 'semanal'){
     const diaSem = id('svc-diasem').value || 'Lunes';
     svc = { concepto:c, monto:m, cadacuanto:0, diaPago:0, diaSemana: diaSem,
-            freqSvc:'SEMANAL', fechaAgregado, proxPago:'' };
+            freqSvc:'SEMANAL', fechaAgregado, periodoAgregadoLbl, proxPago:'' };
   } else if(v === 'quincenal'){
     svc = { concepto:c, monto:m, cadacuanto:0, diaPago:0, diaSemana:'',
-            freqSvc:'QUINCENAL', fechaAgregado, proxPago:'' };
+            freqSvc:'QUINCENAL', fechaAgregado, periodoAgregadoLbl, proxPago:'' };
   } else {
     const n = parseInt(v)||1;
     const proxPago = id('svc-prox').value || '';
@@ -2435,7 +2497,7 @@ async function guardarSvc(){
       dia = proxDate.getDate();
     }
     svc = { concepto:c, monto:m, cadacuanto:n, diaPago:dia, diaSemana:'',
-            freqSvc:'MENSUAL', fechaAgregado, proxPago };
+            freqSvc:'MENSUAL', fechaAgregado, periodoAgregadoLbl, proxPago };
   }
 
   S.servicios.push(svc);
@@ -3073,15 +3135,25 @@ window.renderSvc = function(){
     list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin servicios — agrega el primero</div>';
     id('tot-svc').textContent='$0.00'; return;
   }
-  list.innerHTML = S.servicios.map((s,i)=>{
-    const calc = calcSvcEnPeriodo(s);
+  // Filtrar servicios que no aplican a este periodo (creados en periodo posterior)
+  const visibles = S.servicios.map((s,i)=>({s,i,calc:calcSvcEnPeriodo(s)})).filter(o=>o.calc!==null);
+  if(!visibles.length){
+    list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin servicios activos en este periodo</div>';
+    id('tot-svc').textContent='$0.00'; return;
+  }
+
+  list.innerHTML = visibles.map(({s,i,calc})=>{
     // Respetar freqSvc: SEMANAL / QUINCENAL / MENSUAL+
     const freq = s.freqSvc==='SEMANAL' ? 'Semanal'+(s.diaSemana?' · '+s.diaSemana:'')
               : s.freqSvc==='QUINCENAL' ? 'Quincenal'
               : freqLabel(s.cadacuanto||1);
     // Sub-label: usar S/Q según el modo del usuario
     const subLetra = S.modo==='SEMANAL' ? 'S' : 'Q';
-    const sublbl = calc && calc.nTotal>=1 ? `${subLetra}${calc.quincenaActual}/${calc.nTotal}` : '';
+    // Mostrar S/Q solo cuando aporta info: NO mostrar si freq y modo coinciden trivialmente
+    // (servicio semanal + modo semanal = siempre 1/1, redundante)
+    const ocultarSub = (s.freqSvc==='SEMANAL' && S.modo==='SEMANAL') ||
+                       (s.freqSvc==='QUINCENAL' && S.modo==='QUINCENAL');
+    const sublbl = (!ocultarSub && calc && calc.nTotal>=1) ? `${subLetra}${calc.quincenaActual}/${calc.nTotal}` : '';
     const proxFecha = calcProxPagoSvc(s);
     // Solo mostrar día N en MENSUAL+ (no en SEMANAL ni QUINCENAL)
     const diaInfo = (s.freqSvc!=='SEMANAL' && s.freqSvc!=='QUINCENAL' && s.diaPago) ? ' · día '+s.diaPago : '';

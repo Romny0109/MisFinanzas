@@ -1029,13 +1029,21 @@ function calcMsiEnPeriodo(m, tar){
   const fComp = new Date((m.fechaCompra||todayStr())+'T12:00:00'); fComp.setHours(0,0,0,0);
   const fAgre = new Date((m.fechaAgregado||todayStr())+'T12:00:00'); fAgre.setHours(0,0,0,0);
 
-  // Ciclo de la compra (primer plazo)
-  const cicloPrimero = cicloActualTarjeta(tar, fComp);
-
+  // Plazo inicial guardado (calculado desde fechaCompra al guardar el MSI)
   let plazoActual = m.pagoActual || 1;
-  let cicloActual = cicloPrimero;
-  let desdeConteo = new Date(fAgre); // primer plazo: desde fechaAgregado
-  let esPrimerContabilizado = true;
+
+  // Sincronizar cicloActual con plazoActual: avanzar (plazoActual - 1) ciclos
+  // desde el ciclo de la compra hasta el plazo correspondiente
+  let cicloActual = cicloActualTarjeta(tar, fComp);
+  for(let i = 1; i < plazoActual; i++){
+    cicloActual = avanzarCiclo(cicloActual, tar);
+  }
+
+  // desdeConteo:
+  //   - Para el "primer plazo contabilizado" (plazo cuando se agregó el MSI): desde fAgre
+  //   - Para plazos siguientes ya iterados: día siguiente al límite del plazo anterior
+  let desdeConteo = new Date(fAgre);
+  desdeConteo.setHours(0,0,0,0);
 
   // Iterar plazos hasta encontrar el que cubre el periodo navegado
   for(let safety = 0; safety < 300; safety++){
@@ -1050,12 +1058,16 @@ function calcMsiEnPeriodo(m, tar){
       plazoActual++;
       if(plazoActual > m.plazo) return null; // liquidado
 
+      // Guardar el límite del plazo que acabamos de pasar, ANTES de avanzar
+      const limiteAnterior = new Date(cicloActual.limite);
+      limiteAnterior.setHours(0,0,0,0);
+
       // Siguiente ciclo de la tarjeta (cada plazo = un ciclo)
       cicloActual = avanzarCiclo(cicloActual, tar);
 
-      // El nuevo plazo empieza en el periodo siguiente al que tiene la última quincena
-      const ultimaQuincena = findNthCobro(desdeConteo, nTotal);
-      desdeConteo = findNextPeriodStart(ultimaQuincena);
+      // El nuevo plazo empieza el día SIGUIENTE al límite del plazo anterior
+      desdeConteo = new Date(limiteAnterior);
+      desdeConteo.setDate(desdeConteo.getDate() + 1);
       desdeConteo.setHours(0,0,0,0);
       continue;
     }

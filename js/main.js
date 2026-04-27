@@ -1020,31 +1020,6 @@ function avanzarCiclo(cicloActual, tar){
 // Primer plazo: nTotal se cuenta desde fechaAgregado hasta el límite del ciclo de la compra.
 // Segundo plazo en adelante: nTotal se cuenta desde el inicio del periodo donde arranca
 // el nuevo plazo hasta el nuevo límite.
-// Calcula el plazo inicial real del MSI basándose en cuántos ciclos de la TDC
-// han pasado desde la fecha de compra. Esto se usa cuando se agrega un MSI
-// "viejo" (compra hace meses) y queremos arrancar en el plazo correcto.
-function calcularPlazoInicialMsi(m, tar){
-  if(!m || !tar) return 1;
-  const fComp = new Date((m.fechaCompra||todayStr())+'T12:00:00'); fComp.setHours(0,0,0,0);
-  const fAgre = new Date((m.fechaAgregado||todayStr())+'T12:00:00'); fAgre.setHours(0,0,0,0);
-  // Si la compra es del mismo día que se agregó (caso normal de uso), plazo = 1
-  if(fComp.getTime() === fAgre.getTime()) return 1;
-  // Ciclo de la compra (donde cae el primer pago = plazo 1)
-  let ciclo = cicloActualTarjeta(tar, fComp);
-  // Avanzar plazos hasta llegar al ciclo cuyo límite >= fechaAgregado
-  // Esto identifica el plazo "actual" al momento de agregar el MSI
-  let plazo = 1;
-  let safety = 0;
-  while(ciclo.limite < fAgre && plazo < (m.plazo||60) && safety < 120){
-    plazo++;
-    ciclo = avanzarCiclo(ciclo, tar);
-    safety++;
-  }
-  // No exceder el plazo total
-  if(plazo > (m.plazo||1)) plazo = m.plazo||1;
-  return plazo;
-}
-
 function calcMsiEnPeriodo(m, tar){
   const p = PERIODOS[S.periodoIdx];
   if(!p) return null;
@@ -1054,21 +1029,13 @@ function calcMsiEnPeriodo(m, tar){
   const fComp = new Date((m.fechaCompra||todayStr())+'T12:00:00'); fComp.setHours(0,0,0,0);
   const fAgre = new Date((m.fechaAgregado||todayStr())+'T12:00:00'); fAgre.setHours(0,0,0,0);
 
-  // Plazo inicial: si en BD ya hay m.pagoActual > 1, respetarlo (era manual);
-  // si no, calcular dinámicamente desde fechaCompra (caso MSI agregado tarde).
-  let plazoActual = (m.pagoActual && m.pagoActual > 1) ? m.pagoActual : calcularPlazoInicialMsi(m, tar);
+  // Ciclo de la compra (primer plazo)
+  const cicloPrimero = cicloActualTarjeta(tar, fComp);
 
-  // Ciclo correspondiente al plazo inicial: avanzar desde el ciclo de compra (plazoInicial-1) veces
-  let cicloActual = cicloActualTarjeta(tar, fComp);
-  for(let i = 1; i < plazoActual; i++){
-    cicloActual = avanzarCiclo(cicloActual, tar);
-  }
-
-  // desdeConteo: para el primer plazo contabilizado (cuando recién se agrega el MSI),
-  // contar desde fAgre. Para plazos posteriores ya iterados, será reemplazado por el
-  // inicio del periodo siguiente al límite anterior.
-  let desdeConteo = new Date(fAgre);
-  desdeConteo.setHours(0,0,0,0);
+  let plazoActual = m.pagoActual || 1;
+  let cicloActual = cicloPrimero;
+  let desdeConteo = new Date(fAgre); // primer plazo: desde fechaAgregado
+  let esPrimerContabilizado = true;
 
   // Iterar plazos hasta encontrar el que cubre el periodo navegado
   for(let safety = 0; safety < 300; safety++){
@@ -2838,19 +2805,13 @@ function limpiarMovimientos(){
 
 // MSI
 function setMsiTipo(t){
-  id('msi-btn-n').classList.toggle('on',t==='nuevo');
-  id('msi-btn-p').classList.toggle('on',t==='previo');
-  id('msi-prev-f').style.display=t==='previo'?'block':'none';
+  // legacy - mantener por compatibilidad pero ya no se usa el toggle
 }
-function toggleMsiManual(){ id('msi-man-f').style.display=id('msi-nc').checked?'block':'none'; }
+function toggleMsiManual(){
+  // legacy
+}
 function calcMsiInfo(){
-  const m=parseFloat(id('msi-m').value)||0, pl=parseInt(id('msi-pl').value)||0, pg=parseFloat(id('msi-pg').value)||0, f=id('msi-f').value;
-  if(!f||!m||!pl||!pg){id('msi-info').textContent='Completa todos los campos para calcular.';return;}
-  const inicio=new Date(f+'T12:00:00'), hoy=new Date();
-  const mesesTransc=Math.max(0,Math.floor((hoy-inicio)/(1000*60*60*24*30.4)));
-  const pagosH=Math.min(mesesTransc,pl);
-  const saldo=Math.max(0,(pl-pagosH)*pg);
-  id('msi-info').textContent=`Pago ${pagosH} de ${pl} · Pagado: ${mxn(pagosH*pg)} · Saldo: ${mxn(saldo)} · Faltan ${pl-pagosH} pagos`;
+  // legacy
 }
 function calcMsiPago(){
   const m=parseFloat(id('msi-m').value)||0, pl=parseInt(id('msi-pl').value)||0;
@@ -2859,10 +2820,38 @@ function calcMsiPago(){
   const pago=m/pl;
   box.className='obox';
   box.textContent=`✓ Pago mensual: ${mxn(pago)} (${mxn(m)} ÷ ${pl} meses, sin intereses)`;
+  // Si también hay fecha y tarjeta, mostrar plazo calculado
+  actualizarPlazoCalculadoMsi();
 }
 
 function toggleMsiPrev(val){
-  id('msi-prev-f').style.display = val==='previo' ? 'block' : 'none';
+  // legacy
+}
+
+// Calcula y muestra el plazo actual basado en fechaCompra + ciclos de la TDC
+function actualizarPlazoCalculadoMsi(){
+  const tarNombre = id('msi-tar').value;
+  const pl = parseInt(id('msi-pl').value)||0;
+  const fechaCompra = id('msi-f').value;
+  const box = id('msi-plazo-info');
+  if(!box) return;
+  if(!tarNombre || !pl || !fechaCompra){ box.style.display='none'; return; }
+  const tar = S.tarjetas.find(t => t.nombre === tarNombre);
+  if(!tar){ box.style.display='none'; return; }
+  const fComp = new Date(fechaCompra+'T12:00:00'); fComp.setHours(0,0,0,0);
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  // Avanzar plazos desde fechaCompra hasta el plazo cuyo límite >= HOY
+  let ciclo = cicloActualTarjeta(tar, fComp);
+  let plazo = 1;
+  let safety = 0;
+  while(ciclo.limite < hoy && plazo < pl && safety < 120){
+    plazo++;
+    ciclo = avanzarCiclo(ciclo, tar);
+    safety++;
+  }
+  if(plazo > pl) plazo = pl;
+  box.style.display='';
+  box.innerHTML = `📊 Según la fecha de compra, ya has pagado <strong>${plazo-1}</strong> mensualidades. El próximo pago será el <strong>${plazo}</strong> de ${pl}.`;
 }
 
 function guardarMsi(){
@@ -2876,18 +2865,23 @@ function guardarMsi(){
   const hoy=new Date(); hoy.setHours(0,0,0,0);
   const fComp=new Date(fechaCompra+'T12:00:00'); fComp.setHours(0,0,0,0);
   if(fComp>hoy){alert('No puedes agregar una fecha de compra futura');return;}
+
   const pago = m/pl;
-  const esPrevio = id('msi-btn-p').value === 'previo';
-  let pagoActual=1, saldoPendiente=m;
-  if(esPrevio){
-    if(id('msi-nc').checked){
-      pagoActual=parseInt(id('msi-pa').value)||1;
-      saldoPendiente=parseFloat(id('msi-sl').value)||m;
-    } else {
-      pagoActual=Math.min(pl,Math.max(1,Math.floor((hoy-fComp)/(1000*60*60*24*30.4))+1));
-      saldoPendiente=Math.max(0,(pl-pagoActual+1)*pago);
+  // Calcular plazo actual automáticamente desde fechaCompra + ciclos de la TDC
+  let pagoActual = 1;
+  const tarObj = S.tarjetas.find(t => t.nombre === tar);
+  if(tarObj){
+    let ciclo = cicloActualTarjeta(tarObj, fComp);
+    let plazo = 1;
+    let safety = 0;
+    while(ciclo.limite < hoy && plazo < pl && safety < 120){
+      plazo++;
+      ciclo = avanzarCiclo(ciclo, tarObj);
+      safety++;
     }
+    pagoActual = Math.min(pl, plazo);
   }
+  const saldoPendiente = Math.max(0, (pl - pagoActual + 1) * pago);
   const fechaAgregado = todayStr();
   const msi={tarjeta:tar,concepto:c,monto:m,plazo:pl,pago,incluir:inc,
     pagoActual,saldoPendiente,fechaCompra,fechaAgregado};
@@ -2895,7 +2889,7 @@ function guardarMsi(){
   saveMsiDB(msi).catch(console.warn);
   save();
   id('msi-c').value=''; id('msi-m').value=''; id('msi-pl').value=''; id('msi-f').value='';
-  id('msi-btn-p').value='nuevo'; id('msi-prev-f').style.display='none';
+  if(id('msi-plazo-info')) id('msi-plazo-info').style.display='none';
   closeModal('m-msi'); window.renderMsi(); window.renderTDC(); renderPrincipal();
 }
 function toggleMsi(i){

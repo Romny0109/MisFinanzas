@@ -2675,10 +2675,12 @@ function limpiarExtras(){
 function guardarMov(){
   const tar=id('mov-tar').value, c=id('mov-c').value.trim(), m=parseFloat(id('mov-m').value)||0, f=id('mov-f').value, inc=id('mov-inc').value;
   if(!c||!m){alert('Concepto y monto son requeridos');return;}
-  // Validar fecha después del corte
-  if(f){
-    const v = validarFechaMovimiento(tar, f);
-    if(!v.ok){alert(v.msg);return;}
+  // Validar fecha después del corte (si la función existe)
+  if(f && typeof validarFechaMovimiento === 'function'){
+    try {
+      const v = validarFechaMovimiento(tar, f);
+      if(v && v.ok === false){ alert(v.msg||'Fecha inválida'); return; }
+    } catch(e){ console.warn('validarFechaMovimiento:', e); /* continuar */ }
   }
   const mov={tarjeta:tar,concepto:c,monto:m,fecha:f,incluir:inc};
   S.movimientos.push(mov);

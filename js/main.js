@@ -1921,9 +1921,36 @@ function calcProxPagoSvcDate(s){
   const p = PERIODOS[S.periodoIdx];
   const refFin = p ? new Date(p.fin) : new Date();
   refFin.setHours(0,0,0,0);
-  const refIni = p ? new Date(p.ini) : new Date();
+  let refIni = p ? new Date(p.ini) : new Date();
   refIni.setHours(0,0,0,0);
   const hoy = new Date(); hoy.setHours(0,0,0,0);
+
+  // Si el servicio se agregó ESTANDO EN UN PERIODO FUTURO, la base mínima
+  // para buscar es el INICIO de ese periodo (no hoy ni el periodo visible).
+  // Esto evita que aparezcan notificaciones / próximos pagos para fechas
+  // anteriores al inicio del primer periodo "real" del servicio.
+  let baseMinima = null;
+  if(s.periodoAgregadoLbl){
+    const idxAgreg = PERIODOS.findIndex(per => per.lbl === s.periodoAgregadoLbl);
+    if(idxAgreg >= 0){
+      const pAgreg = PERIODOS[idxAgreg];
+      const pIniAgreg = new Date(pAgreg.ini); pIniAgreg.setHours(0,0,0,0);
+      // Solo aplicar si el periodo de agregado es posterior al periodo visible
+      // y/o posterior a HOY (para evitar afectar comportamiento normal)
+      // Buscar idx del periodo que contiene HOY
+      let idxHoy = -1;
+      for(let i=0; i<PERIODOS.length; i++){
+        const pi = new Date(PERIODOS[i].ini); pi.setHours(0,0,0,0);
+        const pf = new Date(PERIODOS[i].fin); pf.setHours(0,0,0,0);
+        if(hoy >= pi && hoy <= pf){ idxHoy = i; break; }
+      }
+      if(idxHoy >= 0 && idxAgreg > idxHoy){
+        // Sí, fue agregado en un periodo futuro al de hoy.
+        // La fecha más temprana del próximo pago debe ser >= pIniAgreg.
+        baseMinima = pIniAgreg;
+      }
+    }
+  }
 
   // Helper: fecha segura ajustada al último día del mes si excede
   function fechaSegura(y, m, dia){
@@ -1933,13 +1960,20 @@ function calcProxPagoSvcDate(s){
     return d;
   }
 
-  // ── SEMANAL: próximo día de la semana en el periodo o futuro ──
+  // Compute "desde" para iniciar la búsqueda: max(hoy, refIni, baseMinima)
+  function calcDesde(){
+    let desde = hoy;
+    if(refIni > desde) desde = refIni;
+    if(baseMinima && baseMinima > desde) desde = baseMinima;
+    return new Date(desde);
+  }
+
+  // ── SEMANAL: próximo día de la semana ──
   if(s.freqSvc === 'SEMANAL'){
     const diasSem = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
     const diaIdx = diasSem.indexOf(s.diaSemana || 'Lunes');
     if(diaIdx < 0) return null;
-    // Buscar el primer día de la semana >= max(refIni, hoy)
-    const desde = refIni > hoy ? new Date(refIni) : new Date(hoy);
+    const desde = calcDesde();
     const cur = new Date(desde);
     while(cur.getDay() !== diaIdx) cur.setDate(cur.getDate()+1);
     cur.setHours(0,0,0,0);
@@ -1948,7 +1982,7 @@ function calcProxPagoSvcDate(s){
 
   // ── QUINCENAL: 15 y último día del mes ──
   if(s.freqSvc === 'QUINCENAL'){
-    const desde = refIni > hoy ? new Date(refIni) : new Date(hoy);
+    const desde = calcDesde();
     desde.setHours(0,0,0,0);
     let y = desde.getFullYear(), m = desde.getMonth();
     let half = desde.getDate() <= 15 ? 1 : 2;
@@ -1967,14 +2001,29 @@ function calcProxPagoSvcDate(s){
   const dia = s.diaPago;
   const cadaMeses = s.cadacuanto || 1;
   if(cadaMeses === 1){
+    // Si el servicio se agregó en periodo futuro: la primera fecha válida
+    // es el día N estrictamente DESPUÉS del inicio del periodo de agregado.
+    // (Si el día N coincide con el inicio del periodo, ese día NO se cobra,
+    //  porque el servicio "apenas inició" — el primer pago real es el siguiente)
+    if(baseMinima){
+      let y = baseMinima.getFullYear(), m = baseMinima.getMonth();
+      let prox = fechaSegura(y, m, dia);
+      // Avanzar mientras prox <= baseMinima (estricto > para excluir el día de inicio)
+      while(prox <= baseMinima){
+        m++;
+        prox = fechaSegura(y, m, dia);
+        if(prox.getFullYear() > y + 5) break; // safety
+      }
+      return prox;
+    }
     let prox = fechaSegura(refFin.getFullYear(), refFin.getMonth(), dia);
     if(prox <= refFin) prox = fechaSegura(refFin.getFullYear(), refFin.getMonth()+1, dia);
     return prox;
   } else {
     if(s.proxPago){
       let prox = new Date(s.proxPago+'T12:00:00'); prox.setHours(0,0,0,0);
-      // Avanzar ciclos hasta superar refFin
-      while(prox <= refFin){
+      const minRef = baseMinima || refFin;
+      while(prox <= minRef){
         const newM = prox.getMonth() + cadaMeses;
         prox = fechaSegura(prox.getFullYear(), newM, prox.getDate());
       }
@@ -4834,18 +4883,7 @@ function generarNotificacionesRaw(){
     if(s.freqSvc === 'SEMANAL') return; // omitir semanales
     const f = calcProxPagoSvcDate(s);
     if(!f) return;
-    // Respetar periodoAgregadoLbl: si el servicio se creó en un periodo futuro a HOY,
-    // no generar notificaciones para fechas anteriores al inicio de ese periodo.
-    if(s.periodoAgregadoLbl){
-      const idxAgreg = PERIODOS.findIndex(per => per.lbl === s.periodoAgregadoLbl);
-      if(idxAgreg >= 0){
-        const pAgreg = PERIODOS[idxAgreg];
-        const pIniAgreg = new Date(pAgreg.ini); pIniAgreg.setHours(0,0,0,0);
-        // Si la fecha del próximo pago es ANTES del inicio del periodo en que se agregó,
-        // no es una notificación válida (el servicio aún no "ha empezado")
-        if(f < pIniAgreg) return;
-      }
-    }
+    // calcProxPagoSvcDate ya respeta periodoAgregadoLbl internamente.
     const dDias = _diasEntre(hoy, f);
     if(dDias < -30 || dDias > 60) return;
     const freqStr = s.freqSvc === 'QUINCENAL' ? 'Quincenal' : freqLabel(s.cadacuanto||1);
@@ -5501,12 +5539,15 @@ window.togglePass = function(inputId, eyeId){
   const inp = document.getElementById(inputId);
   const eye = document.getElementById(eyeId);
   if(!inp) return;
+  // SVGs minimalistas trazados (ojo abierto / ojo tachado)
+  const ojoAbierto = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const ojoCerrado = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 19c-6.5 0-10-7-10-7a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 7 10 7a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="2" y1="2" x2="22" y2="22"/></svg>';
   if(inp.type === 'password'){
     inp.type = 'text';
-    if(eye) eye.textContent = '🙈';
+    if(eye) eye.innerHTML = ojoCerrado;
   } else {
     inp.type = 'password';
-    if(eye) eye.textContent = '👁️';
+    if(eye) eye.innerHTML = ojoAbierto;
   }
 };
 

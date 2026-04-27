@@ -1020,6 +1020,31 @@ function avanzarCiclo(cicloActual, tar){
 // Primer plazo: nTotal se cuenta desde fechaAgregado hasta el límite del ciclo de la compra.
 // Segundo plazo en adelante: nTotal se cuenta desde el inicio del periodo donde arranca
 // el nuevo plazo hasta el nuevo límite.
+// Calcula el plazo inicial real del MSI basándose en cuántos ciclos de la TDC
+// han pasado desde la fecha de compra. Esto se usa cuando se agrega un MSI
+// "viejo" (compra hace meses) y queremos arrancar en el plazo correcto.
+function calcularPlazoInicialMsi(m, tar){
+  if(!m || !tar) return 1;
+  const fComp = new Date((m.fechaCompra||todayStr())+'T12:00:00'); fComp.setHours(0,0,0,0);
+  const fAgre = new Date((m.fechaAgregado||todayStr())+'T12:00:00'); fAgre.setHours(0,0,0,0);
+  // Si la compra es del mismo día que se agregó (caso normal de uso), plazo = 1
+  if(fComp.getTime() === fAgre.getTime()) return 1;
+  // Ciclo de la compra (donde cae el primer pago = plazo 1)
+  let ciclo = cicloActualTarjeta(tar, fComp);
+  // Avanzar plazos hasta llegar al ciclo cuyo límite >= fechaAgregado
+  // Esto identifica el plazo "actual" al momento de agregar el MSI
+  let plazo = 1;
+  let safety = 0;
+  while(ciclo.limite < fAgre && plazo < (m.plazo||60) && safety < 120){
+    plazo++;
+    ciclo = avanzarCiclo(ciclo, tar);
+    safety++;
+  }
+  // No exceder el plazo total
+  if(plazo > (m.plazo||1)) plazo = m.plazo||1;
+  return plazo;
+}
+
 function calcMsiEnPeriodo(m, tar){
   const p = PERIODOS[S.periodoIdx];
   if(!p) return null;
@@ -1029,13 +1054,21 @@ function calcMsiEnPeriodo(m, tar){
   const fComp = new Date((m.fechaCompra||todayStr())+'T12:00:00'); fComp.setHours(0,0,0,0);
   const fAgre = new Date((m.fechaAgregado||todayStr())+'T12:00:00'); fAgre.setHours(0,0,0,0);
 
-  // Ciclo de la compra (primer plazo)
-  const cicloPrimero = cicloActualTarjeta(tar, fComp);
+  // Plazo inicial: si en BD ya hay m.pagoActual > 1, respetarlo (era manual);
+  // si no, calcular dinámicamente desde fechaCompra (caso MSI agregado tarde).
+  let plazoActual = (m.pagoActual && m.pagoActual > 1) ? m.pagoActual : calcularPlazoInicialMsi(m, tar);
 
-  let plazoActual = m.pagoActual || 1;
-  let cicloActual = cicloPrimero;
-  let desdeConteo = new Date(fAgre); // primer plazo: desde fechaAgregado
-  let esPrimerContabilizado = true;
+  // Ciclo correspondiente al plazo inicial: avanzar desde el ciclo de compra (plazoInicial-1) veces
+  let cicloActual = cicloActualTarjeta(tar, fComp);
+  for(let i = 1; i < plazoActual; i++){
+    cicloActual = avanzarCiclo(cicloActual, tar);
+  }
+
+  // desdeConteo: para el primer plazo contabilizado (cuando recién se agrega el MSI),
+  // contar desde fAgre. Para plazos posteriores ya iterados, será reemplazado por el
+  // inicio del periodo siguiente al límite anterior.
+  let desdeConteo = new Date(fAgre);
+  desdeConteo.setHours(0,0,0,0);
 
   // Iterar plazos hasta encontrar el que cubre el periodo navegado
   for(let safety = 0; safety < 300; safety++){

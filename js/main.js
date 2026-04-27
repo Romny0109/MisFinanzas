@@ -5059,31 +5059,38 @@ async function guardarDivisaCambio(){
   const tcAplicado = mxn / usd;
   const tcMercado  = TC_USD_MXN || null;
   const periodoLbl = (PERIODOS[S.periodoIdx] && PERIODOS[S.periodoIdx].lbl) || '';
+  const extraConcepto = `Cambio de dólares (${divisasFmtUSD(usd)} a $${tcAplicado.toFixed(2)} MXN/USD)`;
 
+  // 1) PRIMERO: guardar el Extra para obtener su ID
+  let extraId = null;
   try {
-    // 1) PRIMERO: guardar el Extra para obtener su ID
-    const extraConcepto = `Cambio de dólares (${divisasFmtUSD(usd)} a $${tcAplicado.toFixed(2)} MXN/USD)`;
-    let extraId = null;
-    try {
-      const {data:extraData} = await supa.from('extras').insert({
-        user_id: UID, concepto: extraConcepto, monto: mxn,
-        descripcion: '', fecha: f,
-        periodo_idx: S.periodoIdx
-      }).select().single();
-      if(extraData) extraId = extraData.id;
-      // Reflejar en S.extras (memoria)
-      if(!S.extras) S.extras = [];
-      S.extras.push({
-        id: extraId,
-        concepto: extraConcepto,
-        monto: mxn,
-        desc: '',
-        fecha: f
-      });
-    } catch(e){ console.warn('crear extra cambio:', e); }
+    const {data:extraData, error:extraErr} = await supa.from('extras').insert({
+      user_id: UID, concepto: extraConcepto, monto: mxn,
+      descripcion: '', fecha: f,
+      periodo_idx: S.periodoIdx
+    }).select().single();
+    if(extraErr) throw extraErr;
+    if(extraData) extraId = extraData.id;
+    // Reflejar en S.extras (memoria)
+    if(!S.extras) S.extras = [];
+    S.extras.push({
+      id: extraId,
+      concepto: extraConcepto,
+      monto: mxn,
+      desc: '',
+      fecha: f
+    });
+  } catch(e){
+    console.error('Error al crear extra:', e);
+    alert('Error al guardar el extra. El cambio NO se registró.');
+    return;
+  }
 
-    // 2) DESPUÉS: registrar el cambio en divisas_movs con el extra_id vinculado
-    await supa.from('divisas_movs').insert({
+  // 2) DESPUÉS: registrar el cambio en divisas_movs con el extra_id vinculado
+  try {
+    // Convertir extraId a string por si la columna es TEXT
+    const extraIdStr = extraId != null ? String(extraId) : null;
+    const {error:movErr} = await supa.from('divisas_movs').insert({
       user_id: UID, tipo: 'cambio',
       concepto: `Cambio USD→MXN`,
       monto_usd: -Math.abs(usd),
@@ -5092,16 +5099,28 @@ async function guardarDivisaCambio(){
       tc_mercado: tcMercado,
       fecha: f,
       periodo_lbl: periodoLbl,
-      extra_id: extraId,
+      extra_id: extraIdStr,
       periodo_idx: S.periodoIdx
     });
+    if(movErr) throw movErr;
+  } catch(e){
+    console.error('Error al guardar movimiento de divisas:', e);
+    // ROLLBACK: borrar el extra que ya se había creado, para que no quede huérfano
+    try {
+      if(extraId != null){
+        await supa.from('extras').delete().eq('id', extraId);
+        if(S.extras) S.extras = S.extras.filter(x => x.id !== extraId);
+      }
+    } catch(rb){ console.warn('rollback extra falló:', rb); }
+    alert('Error al guardar el cambio. Se canceló todo (incluyendo el extra) para no descuadrar tus cuentas.\n\nDetalles en la consola (F12).');
+    return;
+  }
 
-    closeModal('m-divisa-cambio');
-    await renderDivisas();
-    if(typeof window.renderExt === 'function') window.renderExt();
-    renderPrincipal();
-    alert(`✅ Cambio registrado:\n${divisasFmtUSD(usd)} → ${divisasFmtMXN(mxn)}\nAgregado a tus Extras del periodo ${periodoLbl}`);
-  } catch(e){ console.warn('guardar cambio:', e); alert('Error al guardar el cambio'); }
+  closeModal('m-divisa-cambio');
+  await renderDivisas();
+  if(typeof window.renderExt === 'function') window.renderExt();
+  renderPrincipal();
+  alert(`✅ Cambio registrado:\n${divisasFmtUSD(usd)} → ${divisasFmtMXN(mxn)}\nAgregado a tus Extras del periodo ${periodoLbl}`);
 }
 
 async function borrarDivisaMov(id){

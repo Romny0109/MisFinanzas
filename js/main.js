@@ -881,41 +881,80 @@ function cicloVisibleTarjeta(tar){
 }
 
 // Ciclo visible AJUSTADO al periodo navegado.
-// Si debenLimpiarse(tar) es true en el periodo actual, avanzamos al siguiente ciclo
-// (porque el ciclo viejo ya fue cubierto y ahora se ve el nuevo).
+// Lógica robusta: avanza por ciclos según vaya haciendo falta.
+// Para cada ciclo candidato, mostrarlo en el periodo cuyo rango incluye su límite de pago.
 function cicloVisibleEnPeriodo(tar){
-  const cv = cicloVisibleTarjeta(tar);
-  if(!debenLimpiarse(tar)){
-    return cv;
-  }
-  // AVANZAR un ciclo: si ya se limpiaron, el "visible" ahora es el siguiente
+  const p = PERIODOS[S.periodoIdx];
+  if(!p){ return cicloVisibleTarjeta(tar); }
+  const pIni = new Date(p.ini); pIni.setHours(0,0,0,0);
+  const pFin = new Date(p.fin); pFin.setHours(0,0,0,0);
+
   function fechaSegura(y, m, dia){
     const maxD = new Date(y, m+1, 0).getDate();
     const d = new Date(y, m, Math.min(dia, maxD));
     d.setHours(0,0,0,0);
     return d;
   }
-  // Nuevo corteIni = corteIni viejo + 1 mes (mismo día de corte)
-  const ny = cv.corteIni.getFullYear();
-  const nm = cv.corteIni.getMonth() + 1;
-  const corteIni2 = fechaSegura(ny, nm, tar.corte);
-  // Nuevo corteFin = día antes del nuevo corte siguiente
-  const corteIniNext = fechaSegura(corteIni2.getFullYear(), corteIni2.getMonth()+1, tar.corte);
-  const corteFin2 = new Date(corteIniNext); corteFin2.setDate(corteFin2.getDate()-1);
-  // Nuevo límite
-  let limite2;
-  if(tar.modo === 'DÍA DEL MES'){
-    limite2 = fechaSegura(corteIniNext.getFullYear(), corteIniNext.getMonth(), tar.pago);
-    if(limite2 <= corteIniNext) limite2 = fechaSegura(corteIniNext.getFullYear(), corteIniNext.getMonth()+1, tar.pago);
-  } else {
-    limite2 = new Date(corteIniNext); limite2.setDate(corteIniNext.getDate()+(tar.pago||20));
+
+  // Obtener el ciclo visible "natural" (ciclo cuyo límite es el más cercano hacia adelante respecto a HOY)
+  const cvDefault = cicloVisibleTarjeta(tar);
+
+  // Si el límite del ciclo visible está DESPUÉS del fin del periodo navegado:
+  // significa que el periodo navegado ya pasó (es anterior). Mostrar ciclo MÁS VIEJO.
+  // Si el límite está ANTES del inicio del periodo navegado:
+  // significa que ese ciclo ya se pagó. Avanzar a un ciclo posterior.
+  let cv = cvDefault;
+
+  // Iteración hacia atrás (periodos pasados): retroceder ciclos hasta que el límite caiga ≥ pIni
+  let safety = 0;
+  while(cv.limite > pFin && safety < 24){
+    // Retroceder un ciclo
+    const ny = cv.corteIni.getFullYear();
+    const nm = cv.corteIni.getMonth() - 1;
+    const corteIniPrev = fechaSegura(ny, nm, tar.corte);
+    const corteFinPrev = new Date(cv.corteIni); corteFinPrev.setDate(corteFinPrev.getDate()-1);
+    let limitePrev;
+    if(tar.modo === 'DÍA DEL MES'){
+      limitePrev = fechaSegura(cv.corteIni.getFullYear(), cv.corteIni.getMonth(), tar.pago);
+      if(limitePrev <= cv.corteIni) limitePrev = fechaSegura(cv.corteIni.getFullYear(), cv.corteIni.getMonth()+1, tar.pago);
+    } else {
+      limitePrev = new Date(cv.corteIni); limitePrev.setDate(cv.corteIni.getDate()+(tar.pago||20));
+    }
+    cv = {
+      corteIni: corteIniPrev, corteFin: corteFinPrev,
+      limite: limitePrev,
+      limiteStr: limitePrev.toISOString().split('T')[0],
+      cicloLabel: `${corteIniPrev.toLocaleDateString('es-MX',{day:'2-digit',month:'short'})} → ${corteFinPrev.toLocaleDateString('es-MX',{day:'2-digit',month:'short'})}`
+    };
+    safety++;
   }
-  return {
-    corteIni: corteIni2, corteFin: corteFin2,
-    limite: limite2,
-    limiteStr: limite2.toISOString().split('T')[0],
-    cicloLabel: `${corteIni2.toLocaleDateString('es-MX',{day:'2-digit',month:'short'})} → ${corteFin2.toLocaleDateString('es-MX',{day:'2-digit',month:'short'})}`
-  };
+
+  // Iteración hacia adelante (periodos futuros): avanzar ciclos hasta que el límite caiga ≥ pIni
+  safety = 0;
+  while(cv.limite < pIni && safety < 24){
+    // Avanzar un ciclo
+    const ny = cv.corteIni.getFullYear();
+    const nm = cv.corteIni.getMonth() + 1;
+    const corteIni2 = fechaSegura(ny, nm, tar.corte);
+    const corteIniNext = fechaSegura(corteIni2.getFullYear(), corteIni2.getMonth()+1, tar.corte);
+    const corteFin2 = new Date(corteIniNext); corteFin2.setDate(corteFin2.getDate()-1);
+    let limite2;
+    if(tar.modo === 'DÍA DEL MES'){
+      limite2 = fechaSegura(corteIniNext.getFullYear(), corteIniNext.getMonth(), tar.pago);
+      if(limite2 <= corteIniNext) limite2 = fechaSegura(corteIniNext.getFullYear(), corteIniNext.getMonth()+1, tar.pago);
+    } else {
+      limite2 = new Date(corteIniNext); limite2.setDate(corteIniNext.getDate()+(tar.pago||20));
+    }
+    cv = {
+      corteIni: corteIni2, corteFin: corteFin2,
+      limite: limite2,
+      limiteStr: limite2.toISOString().split('T')[0],
+      cicloLabel: `${corteIni2.toLocaleDateString('es-MX',{day:'2-digit',month:'short'})} → ${corteFin2.toLocaleDateString('es-MX',{day:'2-digit',month:'short'})}`
+    };
+    safety++;
+  }
+
+  return cv;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1354,27 +1393,11 @@ function _calcDeuMensualOriginal(d){
 // 2. corteFin del ciclo activo está dentro del periodo navegado
 // 3. Fecha límite del ciclo visible ya no tiene quincenas desde el inicio del periodo
 function debenLimpiarse(tar){
-  const p = PERIODOS[S.periodoIdx]; if(!p) return false;
-
-  // Usar inicio del periodo como referencia para simular el estado en ese momento
-  const refDate = p.ini;
-  const cicloActivo = cicloActualTarjeta(tar, refDate);
-
-  // Ciclo visible = el anterior al activo
-  const dayBeforeCorte = new Date(cicloActivo.corteIni);
-  dayBeforeCorte.setDate(dayBeforeCorte.getDate()-1);
-  const cicloVisible = cicloActualTarjeta(tar, dayBeforeCorte);
-
-  // Condición 1: límite del ciclo visible ≤ fin del periodo (ya pasó o está dentro)
-  const c1 = cicloVisible.limite <= p.fin;
-
-  // Condición 2: corteFin del ciclo activo dentro del periodo navegado
-  const c2 = cicloActivo.corteFin >= p.ini && cicloActivo.corteFin <= p.fin;
-
-  // Condición 3: 0 quincenas desde el inicio del periodo hasta el límite visible
-  const c3 = contarDiasCobro(cicloVisible.limiteStr, _isoStr(p.ini)) === 0;
-
-  return c1 && c2 && c3;
+  // True si el ciclo visible en el periodo navegado AVANZÓ respecto al ciclo natural visible (vs hoy)
+  // Eso significa que el ciclo viejo ya se "cobró" y el nuevo ciclo es el visible.
+  const natural = cicloVisibleTarjeta(tar);
+  const ajustado = cicloVisibleEnPeriodo(tar);
+  return ajustado.corteIni > natural.corteIni;
 }
 
 function movPerteneceAlCicloVisible(tar, fechaMov){

@@ -329,7 +329,7 @@ async function saveDeuDB(d){
       user_id: UID, concepto: d.concepto, monto: d.monto,
       plazo: d.plazo, pago: d.pago, freq: d.freq,
       ini: d.ini, adq: d.adq||'',
-      fecha_agregado: d.fechaAgregado||new Date().toISOString().split('T')[0],
+      fecha_agregado: d.fechaAgregado||todayStr(),
       tipo: d.tipo||'normal',
       num_asignado: d.numAsignado||null
     }).select().single();
@@ -484,7 +484,15 @@ document.addEventListener('click', function(e){
     if(e.target === o) o.classList.remove('open');
   });
 });
-function todayStr(){ return new Date().toISOString().split('T')[0] }
+function todayStr(){
+  // Fecha LOCAL del usuario (no UTC), para evitar desfase de timezone
+  // Ej: a las 11pm en GMT-6, toISOString() da el día siguiente en UTC.
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
 
 // ═══════════════════════════════════════════════════════
 // FORMAT
@@ -2565,7 +2573,7 @@ async function guardarSvc(){
   if(!c||!m){alert('Concepto y monto son requeridos');return;}
 
   const hoy = new Date(); hoy.setHours(0,0,0,0);
-  const fechaAgregado = hoy.toISOString().split('T')[0];
+  const fechaAgregado = todayStr();
   // Capturar el periodo en el que está parado el usuario al agregar el servicio
   const periodoAgregadoLbl = (PERIODOS[S.periodoIdx] && PERIODOS[S.periodoIdx].lbl) || '';
 
@@ -2749,7 +2757,7 @@ function guardarMsi(){
       saldoPendiente=Math.max(0,(pl-pagoActual+1)*pago);
     }
   }
-  const fechaAgregado = hoy.toISOString().split('T')[0];
+  const fechaAgregado = todayStr();
   const msi={tarjeta:tar,concepto:c,monto:m,plazo:pl,pago,incluir:inc,
     pagoActual,saldoPendiente,fechaCompra,fechaAgregado};
   S.msis.push(msi);
@@ -2891,7 +2899,7 @@ function guardarDeu(){
   const ini=id('deu-ini').value, adq=id('deu-adq').value;
   if(!c||!m||!pl||!pg){alert('Completa todos los campos requeridos');return;}
   if(!ini){alert('La fecha del primer pago es requerida');return;}
-  const fechaAgregado = new Date().toISOString().split('T')[0];
+  const fechaAgregado = todayStr();
   // El día de pago se extrae directo de la fecha ini
   const deu={concepto:c, monto:m, plazo:pl, pago:pg, freq, ini, adq, fechaAgregado, tipo:'normal'};
   S.deudas.push(deu);
@@ -3956,7 +3964,7 @@ function guardarTanda(){
   if(!asig||asig<1||asig>nums){ alert('Número asignado inválido'); return; }
   if(!ini){ alert('Fecha de inicio requerida'); return; }
 
-  const fechaAgregado = new Date().toISOString().split('T')[0];
+  const fechaAgregado = todayStr();
   const tanda = {
     concepto: nombre,
     monto: pago*(nums-1),   // premio = aportes de los demás
@@ -5590,7 +5598,7 @@ function mostrarSaludoCumpleSiCorresponde(){
   if(!CURRENT_USER.nacimiento) return;
   if(!esCumpleHoy(CURRENT_USER.nacimiento)) return;
   // Una vez al día
-  const key = `bday_shown_${CURRENT_USER.id}_${new Date().toISOString().split('T')[0]}`;
+  const key = `bday_shown_${CURRENT_USER.id}_${todayStr()}`;
   if(localStorage.getItem(key)) return;
   localStorage.setItem(key, '1');
 

@@ -78,6 +78,12 @@ async function loadFromSupabase(silencioso=false){
       S.ahoPct = parseFloat(c.aho_pct) || 10;
       S.ahoFijo = parseFloat(c.aho_fijo) || 0;
       S.ahoMonto = parseFloat(c.aho_monto) || 0;
+      // Si está en modo porcentaje y aún no se ha calculado el monto,
+      // calcularlo de inmediato (caso típico: cuenta nueva con default 10%)
+      if(S.ahoModo === 'pct' && S.sueldo > 0){
+        const baseCalc = Math.round(S.sueldo * (S.ahoPct||10) / 100);
+        if(!S.ahoMonto || S.ahoMonto === 0) S.ahoMonto = baseCalc;
+      }
       S.periodoCerrado = c.periodo_cerrado || false;
       if(c.tema) S.tema = c.tema;
       if(c.zona_horaria) S.zonaHoraria = c.zona_horaria;
@@ -2397,9 +2403,9 @@ function aplicarFontSize(level){
 }
 function aplicarSecciones(){
   const secs = S.secciones || {};
-  // Indices según el orden de los .tab en el HTML mobile
-  // (principal=0, servicios=1, extras=2, tdc=3, msi=4, deudas=5, otros=6, divisas=7, ahorro=8)
-  const tabMap = {servicios:1,extras:2,tdc:3,msi:4,deudas:5,otros:6,divisas:7,ahorro:8};
+  // Indices según el orden actualizado de los .tab en HTML mobile:
+  // (principal=0, extras=1, divisas=2, servicios=3, tdc=4, msi=5, deudas=6, otros=7, ahorro=8)
+  const tabMap = {extras:1,divisas:2,servicios:3,tdc:4,msi:5,deudas:6,otros:7,ahorro:8};
   const tabs = document.querySelectorAll('.tab');
   const sbTabs = document.querySelectorAll('.sb-tab');
 
@@ -2427,6 +2433,24 @@ function aplicarSecciones(){
       const dCard = document.getElementById('dash-usd-card');
       if(dCard && !visible) dCard.style.display = 'none';
     }
+  });
+
+  // Ocultar sub-encabezados del sidebar cuando todas las secciones de su grupo
+  // están ocultas. Grupos:
+  const grupos = {
+    percepciones: ['extras','divisas'],
+    deducciones: ['servicios','tdc','msi','deudas','otros'],
+    ahorro: ['ahorro']
+  };
+  Object.keys(grupos).forEach(grp => {
+    const claves = grupos[grp];
+    const algunaVisible = claves.some(k => {
+      const v = k === 'divisas' ? (secs[k] === true) : (secs[k] !== false);
+      return v;
+    });
+    document.querySelectorAll(`[data-section-group="${grp}"]`).forEach(el => {
+      el.style.display = algunaVisible ? '' : 'none';
+    });
   });
 
   // If current tab is hidden, go to principal
@@ -2848,7 +2872,107 @@ function limpiarDeudas(){
 function toggleOtrosFijo(){
   id('otros-fijo-fecha').style.display = id('otros-fijo').value==='fecha' ? 'block' : 'none';
 }
-function guardarOtro(){
+
+// Abre el modal "Nuevo gasto" decidiendo si se muestra la sección de pago en USD
+function abrirOtros(){
+  // La sección USD aparece solo si Divisas está activa.
+  // Y si NO hay USD acumulados, mostramos un avisito en lugar del checkbox.
+  const sec = document.getElementById('otros-usd-section');
+  const divisasActiva = !!(S.secciones && S.secciones.divisas === true);
+  if(sec){
+    if(!divisasActiva){
+      sec.style.display = 'none';
+    } else {
+      sec.style.display = '';
+      // Si no hay USD acumulados, deshabilitar el checkbox y mostrar nota
+      const acum = (typeof divisasAcumuladoUSD === 'function') ? divisasAcumuladoUSD() : 0;
+      const chk = document.getElementById('otros-usd-chk');
+      const wrap = document.getElementById('otros-usd-wrap');
+      if(chk){
+        if(acum <= 0){
+          chk.checked = false;
+          chk.disabled = true;
+          chk.parentElement.style.opacity = '.5';
+          chk.parentElement.title = 'No tienes dólares acumulados';
+          if(wrap) wrap.style.display = 'none';
+          // Asegurar nota
+          if(!document.getElementById('otros-usd-nodisp')){
+            const nota = document.createElement('div');
+            nota.id = 'otros-usd-nodisp';
+            nota.style.cssText = 'font-size:10.5px;color:var(--text3);margin-top:-6px;margin-bottom:8px;padding-left:24px';
+            nota.textContent = 'Sin dólares acumulados — agrégalos primero en la sección Divisas.';
+            chk.parentElement.parentElement.parentElement.appendChild(nota);
+          }
+        } else {
+          chk.disabled = false;
+          chk.parentElement.style.opacity = '';
+          chk.parentElement.title = '';
+          // Quitar nota si existía
+          const nota = document.getElementById('otros-usd-nodisp');
+          if(nota) nota.remove();
+        }
+      }
+    }
+  }
+  // Resetear campos al abrir
+  const today = todayStr();
+  if(id('otros-c')) id('otros-c').value = '';
+  if(id('otros-m')) id('otros-m').value = '';
+  if(id('otros-f')) id('otros-f').value = today;
+  if(id('otros-fijo')) id('otros-fijo').value = 'no';
+  if(id('otros-fijo-fecha')) id('otros-fijo-fecha').style.display = 'none';
+  // Limpiar campos USD
+  const usdChk = document.getElementById('otros-usd-chk');
+  if(usdChk && !usdChk.disabled) usdChk.checked = false;
+  const usdWrap = document.getElementById('otros-usd-wrap');
+  if(usdWrap) usdWrap.style.display = 'none';
+  if(document.getElementById('otros-usd-pago')) document.getElementById('otros-usd-pago').value = '';
+  if(document.getElementById('otros-usd-cambio')) document.getElementById('otros-usd-cambio').value = '';
+  const prev = document.getElementById('otros-usd-preview');
+  if(prev) prev.style.display = 'none';
+
+  openModal('m-otros');
+}
+
+// Toggle "Pagué con dólares"
+function toggleOtrosUsd(){
+  const chk = document.getElementById('otros-usd-chk');
+  const wrap = document.getElementById('otros-usd-wrap');
+  if(!wrap) return;
+  wrap.style.display = chk && chk.checked ? '' : 'none';
+  // Asegurar TC actualizado al activar
+  if(chk && chk.checked && typeof divisasFetchTC === 'function'){
+    divisasFetchTC().then(actualizarPreviewOtrosUsd).catch(()=>{});
+  }
+}
+
+function actualizarPreviewOtrosUsd(){
+  const m = parseFloat(document.getElementById('otros-m').value)||0;
+  const usd = parseFloat(document.getElementById('otros-usd-pago').value)||0;
+  const cambio = parseFloat(document.getElementById('otros-usd-cambio').value)||0;
+  const prev = document.getElementById('otros-usd-preview');
+  const totalEl = document.getElementById('otros-usd-total');
+  const tcEl = document.getElementById('otros-usd-tc');
+  const merEl = document.getElementById('otros-usd-mercado-info');
+  if(!m || !usd || usd<=0){ if(prev) prev.style.display='none'; return; }
+  // Total en MXN = monto del gasto + cambio recibido
+  const totalMxn = m + cambio;
+  const tcAplicado = totalMxn / usd;
+  if(prev) prev.style.display = '';
+  if(totalEl) totalEl.textContent = `MXN $${totalMxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  if(tcEl) tcEl.textContent = `$${tcAplicado.toFixed(4)} MXN/USD`;
+  if(merEl){
+    const tcMercado = (typeof TC_USD_MXN !== 'undefined' && TC_USD_MXN) ? TC_USD_MXN : 0;
+    if(tcMercado){
+      const dif = (tcAplicado - tcMercado);
+      const signo = dif >= 0 ? '+' : '';
+      const color = dif >= 0 ? 'var(--green)' : 'var(--red)';
+      merEl.innerHTML = ` · Mercado: <strong>$${tcMercado.toFixed(4)}</strong> · Diferencia: <strong style="color:${color}">${signo}$${dif.toFixed(4)} MXN</strong>`;
+    } else { merEl.innerHTML = ''; }
+  }
+}
+
+async function guardarOtro(){
   const c=id('otros-c').value.trim(), m=parseFloat(id('otros-m').value)||0;
   const fecha=id('otros-f').value;
   if(!c||!m){alert('Concepto y monto son requeridos');return;}
@@ -2862,22 +2986,148 @@ function guardarOtro(){
     return `${y}-${m2}-${d}`;
   })();
   if(fecha > hoyStr){alert('La fecha no puede ser futura');return;}
+
+  // ── Validar pago en USD ──
+  const usdChk = document.getElementById('otros-usd-chk');
+  const divisasActiva = !!(S.secciones && S.secciones.divisas === true);
+  // Solo procesar pago en USD si Divisas está activa Y el checkbox está marcado
+  const pagaUsd = !!(divisasActiva && usdChk && usdChk.checked && !usdChk.disabled);
+  let usdPago = 0, mxnCambio = 0, tcAplicado = 0;
+  if(pagaUsd){
+    usdPago = parseFloat(document.getElementById('otros-usd-pago').value)||0;
+    mxnCambio = parseFloat(document.getElementById('otros-usd-cambio').value)||0;
+    if(usdPago <= 0){ alert('Indica cuántos USD entregaste'); return; }
+    if(mxnCambio < 0){ alert('El cambio no puede ser negativo'); return; }
+    // Validar que tengas suficientes USD acumulados
+    if(typeof divisasAcumuladoUSD === 'function'){
+      const acum = divisasAcumuladoUSD();
+      if(usdPago > acum){
+        alert(`Fondos insuficientes en dólares.\n\nIntentas usar USD $${usdPago.toFixed(2)} pero solo tienes USD $${acum.toFixed(2)} acumulados.`);
+        return;
+      }
+    }
+    // TC aplicado = (monto del gasto + cambio) / usd entregado
+    tcAplicado = (m + mxnCambio) / usdPago;
+  }
+
   const fijoMode=id('otros-fijo').value;
   const gasto={
+    id: 'otro_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
     concepto:c, monto:m, fecha,
-    periodoIdx: S.periodoIdx, // periodo donde se creó
+    periodoIdx: S.periodoIdx,
     fijo: fijoMode !== 'no',
     fijoHasta: fijoMode==='fecha' ? id('otros-hasta').value : null,
     fijoIndef: fijoMode==='indef'
   };
+
+  // ── Si se pagó con USD: crear movimiento de divisas + extra de cambio (si aplica) ──
+  let divisaMovId = null;
+  let extraCambioId = null;
+  if(pagaUsd){
+    const periodoLbl = (PERIODOS[S.periodoIdx] && PERIODOS[S.periodoIdx].lbl) || '';
+    const tcMercado = (typeof TC_USD_MXN !== 'undefined' && TC_USD_MXN) ? TC_USD_MXN : null;
+
+    // 1) Si hay cambio devuelto en MXN, crear EXTRA de percepción
+    if(mxnCambio > 0){
+      try {
+        const extraConcepto = `Cambio del gasto "${c}" (USD $${usdPago.toFixed(2)} a $${tcAplicado.toFixed(2)} MXN/USD)`;
+        const {data:extraData, error:extraErr} = await supa.from('extras').insert({
+          user_id: UID, concepto: extraConcepto, monto: mxnCambio,
+          descripcion: '', fecha: fecha,
+          periodo_idx: S.periodoIdx
+        }).select().single();
+        if(extraErr) throw extraErr;
+        if(extraData){
+          extraCambioId = extraData.id;
+          if(!S.extras) S.extras = [];
+          S.extras.push({ id: extraCambioId, concepto: extraConcepto, monto: mxnCambio, desc: '', fecha });
+        }
+      } catch(e){ console.warn('crear extra cambio:', e); alert('Error al guardar el extra del cambio'); return; }
+    }
+
+    // 2) Crear movimiento "cambio" en divisas_movs (negativo en USD)
+    try {
+      const movConcepto = `Gasto en MXN "${c}" pagado con USD`;
+      const {data:movData, error:movErr} = await supa.from('divisas_movs').insert({
+        user_id: UID, tipo: 'cambio',
+        concepto: movConcepto,
+        monto_usd: -Math.abs(usdPago),
+        monto_mxn: m + mxnCambio,  // total que valió el cambio
+        tc_aplicado: tcAplicado,
+        tc_mercado: tcMercado,
+        fecha: fecha,
+        periodo_lbl: periodoLbl,
+        extra_id: extraCambioId != null ? String(extraCambioId) : null,
+        periodo_idx: S.periodoIdx
+      }).select().single();
+      if(movErr) throw movErr;
+      if(movData) divisaMovId = movData.id;
+    } catch(e){
+      console.warn('crear mov divisa:', e);
+      // ROLLBACK del extra
+      if(extraCambioId != null){
+        try {
+          await supa.from('extras').delete().eq('id', extraCambioId);
+          if(S.extras) S.extras = S.extras.filter(x => x.id !== extraCambioId);
+        } catch(rb){}
+      }
+      alert('Error al guardar el movimiento de divisas. Se canceló todo.');
+      return;
+    }
+
+    // Vincular el gasto con el mov de divisas y el extra (para borrado en cascada)
+    gasto.divisaMovId = divisaMovId;
+    gasto.extraCambioId = extraCambioId;
+    gasto.usdPago = usdPago;
+    gasto.mxnCambio = mxnCambio;
+    gasto.tcAplicado = tcAplicado;
+  }
+
   S.otrosGastos.push(gasto);
   save();
+
+  // Limpiar form
   id('otros-c').value=''; id('otros-m').value=''; id('otros-f').value='';
   id('otros-fijo').value='no'; id('otros-fijo-fecha').style.display='none';
-  closeModal('m-otros'); window.renderOtros(); renderPrincipal();
+  if(usdChk) usdChk.checked = false;
+  document.getElementById('otros-usd-wrap').style.display = 'none';
+  document.getElementById('otros-usd-pago').value = '';
+  document.getElementById('otros-usd-cambio').value = '';
+
+  closeModal('m-otros');
+  window.renderOtros();
+  if(typeof window.renderExt === 'function') window.renderExt();
+  if(typeof renderDivisas === 'function') renderDivisas().catch(()=>{});
+  renderPrincipal();
 }
-function delOtro(i){
-  S.otrosGastos.splice(i,1); save(); window.renderOtros(); renderPrincipal();
+async function delOtro(i){
+  const g = S.otrosGastos[i];
+  if(!g){ return; }
+  // Si el gasto tiene pago en USD vinculado, preguntar
+  if(g.divisaMovId || g.extraCambioId){
+    const r = confirm(
+      `Este gasto se pagó con dólares. Al borrarlo:\n\n` +
+      `• Se devolverán USD $${(g.usdPago||0).toFixed(2)} a tu acumulado\n` +
+      (g.extraCambioId ? `• Se eliminará el extra del cambio (MXN $${(g.mxnCambio||0).toFixed(2)})\n` : '') +
+      `\n¿Continuar?`
+    );
+    if(!r) return;
+    // Borrar mov divisa
+    if(g.divisaMovId){
+      try { await supa.from('divisas_movs').delete().eq('id', g.divisaMovId); } catch(e){ console.warn('del mov:', e); }
+    }
+    // Borrar extra del cambio
+    if(g.extraCambioId){
+      try { await supa.from('extras').delete().eq('id', g.extraCambioId); } catch(e){ console.warn('del extra:', e); }
+      if(S.extras) S.extras = S.extras.filter(x => x.id !== g.extraCambioId);
+    }
+  }
+  S.otrosGastos.splice(i,1);
+  save();
+  window.renderOtros();
+  if(typeof window.renderExt === 'function') window.renderExt();
+  if(typeof renderDivisas === 'function') renderDivisas().catch(()=>{});
+  renderPrincipal();
 }
 function toggleOtroFijo(i){
   const g = S.otrosGastos[i];
@@ -2928,11 +3178,13 @@ window.renderOtros = function(){
   list.innerHTML = visibles.map(g=>{
     const i = S.otrosGastos.indexOf(g);
     const fijoLabel = g.fijoIndef ? 'Fijo indefinido' : g.fijo ? `Fijo hasta ${g.fijoHasta}` : 'Solo este periodo';
+    const usdInfo = g.usdPago ? `<div style="font-size:10.5px;color:var(--green);margin-top:2px">💵 Pagado con USD $${g.usdPago.toFixed(2)} · TC $${(g.tcAplicado||0).toFixed(2)}${g.mxnCambio>0?` · Cambio: $${g.mxnCambio.toFixed(2)} MXN`:''}</div>` : '';
     return `<div class="ext-item">
       <div class="ext-dot" style="background:var(--amber)"></div>
       <div class="ext-info">
         <div class="ext-name">${g.concepto}</div>
         <div class="ext-desc">${g.fecha||''} · <span style="cursor:pointer;color:${g.fijo||g.fijoIndef?'var(--teal)':'var(--text3)'}" onclick="toggleOtroFijo(${i})">${fijoLabel}</span></div>
+        ${usdInfo}
       </div>
       <div class="ext-right">
         <div class="ext-a" style="color:var(--amber)">-${mxn(g.monto)}</div>
@@ -5145,6 +5397,40 @@ async function guardarDivisaCambio(){
 async function borrarDivisaMov(id){
   // Buscar el movimiento en cache para saber si es 'cambio' y tiene extra vinculado
   const mov = DIVISAS_MOVS.find(m => m.id === id);
+
+  // ¿Está vinculado a un gasto en "Otros"? (caso "Pagué con dólares")
+  const otroVinculado = S.otrosGastos ? S.otrosGastos.find(g => g.divisaMovId === id) : null;
+
+  if(otroVinculado){
+    const r = confirm(
+      `Este movimiento está vinculado al gasto "${otroVinculado.concepto}" en Otros.\n\n` +
+      `Al borrarlo:\n` +
+      `• Los USD $${(otroVinculado.usdPago||0).toFixed(2)} volverán a tu acumulado\n` +
+      `• El gasto en Otros también se eliminará\n` +
+      (otroVinculado.extraCambioId ? `• El extra del cambio (MXN $${(otroVinculado.mxnCambio||0).toFixed(2)}) también se eliminará\n` : '') +
+      `\n¿Continuar?`
+    );
+    if(!r) return;
+    try {
+      // Borrar mov divisa
+      await supa.from('divisas_movs').delete().eq('id', id);
+      // Borrar extra del cambio si existe
+      if(otroVinculado.extraCambioId){
+        await supa.from('extras').delete().eq('id', otroVinculado.extraCambioId);
+        if(S.extras) S.extras = S.extras.filter(x => x.id !== otroVinculado.extraCambioId);
+      }
+      // Borrar el gasto de Otros
+      const idx = S.otrosGastos.indexOf(otroVinculado);
+      if(idx >= 0) S.otrosGastos.splice(idx, 1);
+      save();
+      await renderDivisas();
+      if(typeof window.renderOtros === 'function') window.renderOtros();
+      if(typeof window.renderExt === 'function') window.renderExt();
+      renderPrincipal();
+    } catch(e){ console.warn('borrar mov+otro:', e); alert('Error al borrar'); }
+    return;
+  }
+
   if(!mov){
     if(!confirm('¿Eliminar este movimiento?')) return;
   } else if(mov.tipo === 'cambio' && mov.extra_id){
@@ -5207,3 +5493,92 @@ document.addEventListener('click', function(e){
   const btn = e.target.closest('[data-tab="divisas"], button[onclick*="\'divisas\'"]');
   if(btn){ setTimeout(() => renderDivisas().catch(()=>{}), 50); }
 });
+
+// ═══════════════════════════════════════════════════════════════
+// Toggle ver/ocultar contraseña
+// ═══════════════════════════════════════════════════════════════
+window.togglePass = function(inputId, eyeId){
+  const inp = document.getElementById(inputId);
+  const eye = document.getElementById(eyeId);
+  if(!inp) return;
+  if(inp.type === 'password'){
+    inp.type = 'text';
+    if(eye) eye.textContent = '🙈';
+  } else {
+    inp.type = 'password';
+    if(eye) eye.textContent = '👁️';
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// CUMPLEAÑOS
+// ═══════════════════════════════════════════════════════════════
+function esCumpleHoy(fechaNacISO){
+  if(!fechaNacISO) return false;
+  const hoy = new Date();
+  const f = new Date(fechaNacISO + 'T12:00:00');
+  return hoy.getMonth() === f.getMonth() && hoy.getDate() === f.getDate();
+}
+
+function calcularEdad(fechaNacISO){
+  if(!fechaNacISO) return null;
+  const hoy = new Date();
+  const f = new Date(fechaNacISO + 'T12:00:00');
+  let edad = hoy.getFullYear() - f.getFullYear();
+  const m = hoy.getMonth() - f.getMonth();
+  if(m < 0 || (m === 0 && hoy.getDate() < f.getDate())) edad--;
+  return edad;
+}
+
+function diasParaCumple(fechaNacISO){
+  if(!fechaNacISO) return null;
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const f = new Date(fechaNacISO + 'T12:00:00');
+  // Cumpleaños este año
+  let cumpleEsteAno = new Date(hoy.getFullYear(), f.getMonth(), f.getDate());
+  cumpleEsteAno.setHours(0,0,0,0);
+  if(cumpleEsteAno < hoy){
+    // Ya pasó, calcular para el año siguiente
+    cumpleEsteAno = new Date(hoy.getFullYear()+1, f.getMonth(), f.getDate());
+  }
+  return Math.round((cumpleEsteAno - hoy) / (1000*60*60*24));
+}
+
+function mostrarSaludoCumpleSiCorresponde(){
+  if(typeof CURRENT_USER === 'undefined' || !CURRENT_USER) return;
+  if(!CURRENT_USER.nacimiento) return;
+  if(!esCumpleHoy(CURRENT_USER.nacimiento)) return;
+  // Una vez al día
+  const key = `bday_shown_${CURRENT_USER.id}_${new Date().toISOString().split('T')[0]}`;
+  if(localStorage.getItem(key)) return;
+  localStorage.setItem(key, '1');
+
+  const edad = calcularEdad(CURRENT_USER.nacimiento);
+  const nombre = CURRENT_USER.nombre || CURRENT_USER.username || 'amig@';
+  // Crear overlay especial
+  const ov = document.createElement('div');
+  ov.id = 'm-cumple';
+  ov.className = 'overlay';
+  ov.style.cssText = 'display:flex;align-items:center;justify-content:center;z-index:9999';
+  ov.innerHTML = `
+    <div class="modal" style="background:linear-gradient(135deg, #fef3c7, #fde68a, #fbbf24);color:#78350f;text-align:center;max-width:420px;padding:30px 24px;border-radius:18px">
+      <div style="font-size:50px;line-height:1.2;margin-bottom:8px">🎂🎉🥳</div>
+      <div style="font-size:22px;font-weight:800;margin-bottom:8px">¡Felices ${edad} años, ${nombre}!</div>
+      <div style="font-size:14px;line-height:1.5;color:#92400e;margin-bottom:18px">
+        Que este año esté lleno de logros, salud y buenas finanzas 💛<br>
+        Hoy te toca brindar y disfrutar — ¡las cuentas las cuidamos juntos otro día!
+      </div>
+      <button onclick="document.getElementById('m-cumple').remove()" style="
+        background:#78350f;color:#fef3c7;border:none;padding:12px 28px;border-radius:10px;
+        font-size:14px;font-weight:700;cursor:pointer;font-family:inherit
+      ">¡Gracias, sigamos! 🚀</button>
+    </div>`;
+  document.body.appendChild(ov);
+}
+
+// Disparar saludo después del login
+setTimeout(() => {
+  if(typeof CURRENT_USER !== 'undefined' && CURRENT_USER){
+    mostrarSaludoCumpleSiCorresponde();
+  }
+}, 1500);

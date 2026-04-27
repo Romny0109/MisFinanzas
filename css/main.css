@@ -777,3 +777,56 @@ select.fi{cursor:pointer}
   margin-bottom:20px !important;
   text-align:center;
 }
+
+/* Sub-encabezados del sidebar (PERCEPCIONES / DEDUCCIONES) */
+.sb-group-title {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .8px;
+  color: var(--text3);
+  text-transform: uppercase;
+  padding: 12px 14px 4px;
+  margin-top: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+  opacity: .7;
+}
+.sb-group-title:first-of-type {
+  margin-top: 8px;
+}
+
+/* ─── FIX ZOOM ALTO EN PANTALLAS CHICAS ───────────────── */
+/* Cuando el usuario tiene zoom alto (≥125%) en una pantalla pequeña,
+   los elementos no deben desbordarse horizontalmente. */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { overflow-x: hidden; max-width: 100vw; }
+.app { max-width: 100%; }
+@media (min-width: 521px) { .app { max-width: 520px; } }
+@media (min-width: 768px) { .app { max-width: 720px; } }
+
+/* Tarjetas que no se desborden */
+.card, .col-card, .modal { max-width: 100%; }
+
+/* Inputs y monedas no desbordan */
+input, select, textarea, .fi { max-width: 100%; }
+
+/* Long text en disp-a y montos: ajustar con min-content */
+.disp-a, .col-card .row { word-break: break-word; }
+
+/* En móvil chico (≤380px) reducir gaps de la grilla y fonts */
+@media (max-width: 380px) {
+  .tabs { font-size: 10.5px; padding: 2px; }
+  .tab { padding: 5px 7px; font-size: 10.5px; }
+  .disp-a { font-size: 20px !important; }
+  .col-card .row { font-size: 11.5px; }
+  .col-card .row > div:last-child { font-size: 12px; }
+}
+
+/* En móvil mediano (≤480px) compactar más para zoom alto */
+@media (max-width: 480px) {
+  .hdr-title { font-size: 16px; }
+  .card-hdr { font-size: 11px; }
+  .modal { width: calc(100% - 16px); margin: 0 8px; }
+  /* Asegurar que ningún elemento absoluto se salga */
+  .scr { overflow-x: hidden; }
+}

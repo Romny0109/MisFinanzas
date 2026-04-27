@@ -39,11 +39,18 @@
     </div>
     <div style="text-align:left;margin-bottom:20px">
       <label style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Contraseña</label>
-      <input id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password" style="
-        width:100%;padding:11px 14px;border-radius:10px;border:1px solid var(--border);
-        background:var(--bg3);color:var(--text);font-family:'DM Sans',system-ui;
-        font-size:14px;margin-top:4px;outline:none;
-      " onkeydown="if(event.key==='Enter')loginLocal()">
+      <div style="position:relative">
+        <input id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password" style="
+          width:100%;padding:11px 40px 11px 14px;border-radius:10px;border:1px solid var(--border);
+          background:var(--bg3);color:var(--text);font-family:'DM Sans',system-ui;
+          font-size:14px;margin-top:4px;outline:none;
+        " onkeydown="if(event.key==='Enter')loginLocal()">
+        <button type="button" id="login-eye" onclick="togglePass('login-pass','login-eye')" aria-label="Ver/Ocultar contraseña" style="
+          position:absolute;right:10px;top:50%;transform:translateY(-50%);
+          background:none;border:none;cursor:pointer;font-size:18px;
+          padding:4px 6px;color:var(--text2);
+        ">👁️</button>
+      </div>
     </div>
     <div id="login-error" style="display:none;font-size:12px;color:var(--red);margin-bottom:12px;text-align:left"></div>
     <button onclick="loginLocal()" style="
@@ -74,13 +81,19 @@
   </button>
   <div class="sb-sep">Navegación</div>
   <button class="sb-tab on" data-tab="principal" onclick="goSidebar('principal',this)"><span class="ti">·</span>Principal</button>
+
+  <div class="sb-group-title" data-section-group="percepciones">PERCEPCIONES</div>
+  <button class="sb-tab" data-tab="extras" onclick="goSidebar('extras',this)"><span class="ti">+</span>Extras</button>
+  <button class="sb-tab" data-tab="divisas" onclick="goSidebar('divisas',this)"><span class="ti">$</span>Divisas</button>
+
+  <div class="sb-group-title" data-section-group="deducciones">DEDUCCIONES</div>
   <button class="sb-tab" data-tab="servicios" onclick="goSidebar('servicios',this)"><span class="ti">·</span>Servicios</button>
-  <button class="sb-tab" data-tab="extras" onclick="goSidebar('extras',this)"><span class="ti">·</span>Extras</button>
   <button class="sb-tab" data-tab="tdc" onclick="goSidebar('tdc',this)"><span class="ti">·</span>TDC</button>
   <button class="sb-tab" data-tab="msi" onclick="goSidebar('msi',this)"><span class="ti">·</span>MSI</button>
   <button class="sb-tab" data-tab="deudas" onclick="goSidebar('deudas',this)"><span class="ti">·</span>Deudas</button>
   <button class="sb-tab" data-tab="otros" onclick="goSidebar('otros',this)"><span class="ti">·</span>Otros</button>
-  <button class="sb-tab" data-tab="divisas" onclick="goSidebar('divisas',this)"><span class="ti">·</span>Divisas</button>
+
+  <div class="sb-group-title" data-section-group="ahorro">AHORRO</div>
   <button class="sb-tab" data-tab="ahorro" onclick="goSidebar('ahorro',this)"><span class="ti">·</span>Ahorro</button>
   <div class="sb-alert pending" id="sb-alert">Cargando...</div>
   <div id="sb-user-info"></div>
@@ -121,13 +134,13 @@
 
   <div class="tabs" id="tabs">
     <button class="tab on" onclick="goTab('principal',this)">Principal</button>
-    <button class="tab" onclick="goTab('servicios',this)">Servicios</button>
     <button class="tab" onclick="goTab('extras',this)">Extras</button>
+    <button class="tab" onclick="goTab('divisas',this)">Divisas</button>
+    <button class="tab" onclick="goTab('servicios',this)">Servicios</button>
     <button class="tab" onclick="goTab('tdc',this)">TDC</button>
     <button class="tab" onclick="goTab('msi',this)">MSI</button>
     <button class="tab" onclick="goTab('deudas',this)">Deudas</button>
     <button class="tab" onclick="goTab('otros',this)">Otros</button>
-    <button class="tab" onclick="goTab('divisas',this)">Divisas</button>
     <button class="tab" onclick="goTab('ahorro',this)">Ahorro</button>
   </div>
 
@@ -495,7 +508,7 @@
       <div class="card-hdr"><span>Otros gastos del periodo</span>
         <div style="display:flex;gap:6px">
           <button class="clear-btn" onclick="limpiarOtros()">Limpiar</button>
-          <button class="add-btn" onclick="openModal('m-otros')">+ agregar</button>
+          <button class="add-btn" onclick="abrirOtros()">+ agregar</button>
         </div>
       </div>
       <div id="otros-list"><div class="empty"><div class="empty-icon">—</div>Sin gastos extra — agrega el primero</div></div>
@@ -1093,9 +1106,32 @@
     <div class="m-title">Nuevo gasto</div>
     <div class="frow"><div class="fg"><div class="fl">Concepto</div><input class="fi" id="otros-c" placeholder="Ej: Cine, comida, taxi..."></div></div>
     <div class="frow">
-      <div class="fg"><div class="fl">Monto $</div><input class="fi" type="number" id="otros-m" inputmode="decimal"></div>
+      <div class="fg"><div class="fl">Monto $ MXN</div><input class="fi" type="number" id="otros-m" inputmode="decimal"></div>
       <div class="fg"><div class="fl">Fecha</div><input class="fi" type="date" id="otros-f"></div>
     </div>
+
+    <!-- Pago con dólares (solo visible si Divisas está activa) -->
+    <div id="otros-usd-section" style="display:none">
+      <div class="frow"><div class="fg" style="flex-direction:row;align-items:center;gap:10px">
+        <label class="cfg-check" style="margin:0">
+          <input type="checkbox" id="otros-usd-chk" onchange="toggleOtrosUsd()">
+          💵 Pagué con dólares
+        </label>
+      </div></div>
+      <div id="otros-usd-wrap" style="display:none;background:rgba(34,197,94,.06);border-left:3px solid var(--green);padding:10px 12px;margin-bottom:10px;border-radius:0 8px 8px 0">
+        <div class="frow">
+          <div class="fg"><div class="fl">USD que entregué</div><input class="fi" type="number" id="otros-usd-pago" step="0.01" inputmode="decimal" oninput="actualizarPreviewOtrosUsd()"></div>
+          <div class="fg"><div class="fl">Cambio en MXN</div><input class="fi" type="number" id="otros-usd-cambio" step="0.01" inputmode="decimal" oninput="actualizarPreviewOtrosUsd()"></div>
+        </div>
+        <div id="otros-usd-preview" style="font-size:11px;color:var(--text2);margin-top:4px;display:none">
+          Total recibido en MXN: <strong id="otros-usd-total" style="color:var(--green)">—</strong> ·
+          Tipo de cambio aplicado: <strong id="otros-usd-tc">—</strong>
+          <span id="otros-usd-mercado-info"></span>
+        </div>
+        <div style="font-size:10.5px;color:var(--text3);margin-top:4px">El cambio (MXN devuelto) se agregará como Extra en este periodo.</div>
+      </div>
+    </div>
+
     <div class="frow"><div class="fg"><div class="fl">¿Fijar en futuros periodos?</div>
       <select class="fi" id="otros-fijo" onchange="toggleOtrosFijo()">
         <option value="no">No, solo este periodo</option>

@@ -1020,30 +1020,6 @@ function avanzarCiclo(cicloActual, tar){
 // Primer plazo: nTotal se cuenta desde fechaAgregado hasta el límite del ciclo de la compra.
 // Segundo plazo en adelante: nTotal se cuenta desde el inicio del periodo donde arranca
 // el nuevo plazo hasta el nuevo límite.
-// Calcula el plazo inicial real del MSI basándose en cuántos ciclos de la TDC
-// han pasado desde la fecha de compra. Esto se usa cuando se agrega un MSI
-// "viejo" (compra hace meses) y queremos arrancar en el plazo correcto.
-function calcularPlazoInicialMsi(m, tar){
-  if(!m || !tar) return 1;
-  const fComp = new Date((m.fechaCompra||todayStr())+'T12:00:00'); fComp.setHours(0,0,0,0);
-  const hoy = new Date(); hoy.setHours(0,0,0,0);
-  // Si la compra es de hoy o futuro, plazo inicial = 1
-  if(fComp >= hoy) return 1;
-  // Ciclo de la compra (donde cae el primer pago)
-  let ciclo = cicloActualTarjeta(tar, fComp);
-  // Avanzar ciclos hasta llegar al ciclo cuyo límite >= HOY
-  let plazo = 1;
-  let safety = 0;
-  while(ciclo.limite < hoy && plazo < (m.plazo||60) && safety < 120){
-    plazo++;
-    ciclo = avanzarCiclo(ciclo, tar);
-    safety++;
-  }
-  // No exceder el plazo total
-  if(plazo > (m.plazo||1)) plazo = m.plazo||1;
-  return plazo;
-}
-
 function calcMsiEnPeriodo(m, tar){
   const p = PERIODOS[S.periodoIdx];
   if(!p) return null;
@@ -1053,25 +1029,13 @@ function calcMsiEnPeriodo(m, tar){
   const fComp = new Date((m.fechaCompra||todayStr())+'T12:00:00'); fComp.setHours(0,0,0,0);
   const fAgre = new Date((m.fechaAgregado||todayStr())+'T12:00:00'); fAgre.setHours(0,0,0,0);
 
-  // Plazo inicial: si en BD ya hay m.pagoActual > 1, respetarlo (era manual);
-  // si no, calcular dinámicamente desde fechaCompra (caso MSI agregado tarde).
-  let plazoActual = (m.pagoActual && m.pagoActual > 1) ? m.pagoActual : calcularPlazoInicialMsi(m, tar);
+  // Ciclo de la compra (primer plazo)
+  const cicloPrimero = cicloActualTarjeta(tar, fComp);
 
-  // Ciclo correspondiente al plazo inicial: avanzar desde el ciclo de compra (plazoInicial-1) veces
-  let cicloActual = cicloActualTarjeta(tar, fComp);
-  for(let i = 1; i < plazoActual; i++){
-    cicloActual = avanzarCiclo(cicloActual, tar);
-  }
-
-  let desdeConteo = new Date(fAgre); // primer plazo contabilizado: desde fechaAgregado
-  // Si el MSI ya fue agregado hace tiempo y plazoActual avanzó más allá del primer plazo
-  // contabilizado, "desdeConteo" debe ser el inicio del periodo siguiente al límitePago anterior.
-  // Pero si plazoActual recién es el primer contabilizado, mantenemos fAgre.
-  // Detección: si el límite del cicloActual es < fAgre, es plazo viejo, usar inicio del ciclo
-  if(cicloActual.limite < fAgre){
-    desdeConteo = new Date(cicloActual.corteIni);
-    desdeConteo.setHours(0,0,0,0);
-  }
+  let plazoActual = m.pagoActual || 1;
+  let cicloActual = cicloPrimero;
+  let desdeConteo = new Date(fAgre); // primer plazo: desde fechaAgregado
+  let esPrimerContabilizado = true;
 
   // Iterar plazos hasta encontrar el que cubre el periodo navegado
   for(let safety = 0; safety < 300; safety++){
@@ -3697,12 +3661,10 @@ window.renderTDC = function(){
       const totalTarjeta = totalMovTodo + totalMsiTodo*nCobros; // MSI ya viene dividido, lo "deshacemos" para mostrar bruto
       // En realidad MSI total bruto = sum(monto/plazo) — el monto del MSI por mes
       // Más simple: recalcular MSI bruto sin dividir entre cobros
-      // "Total tarjeta" (informativo) = compras + MSI bruto del mes (suma todo lo que hay en la tarjeta)
-      // "Solo lo mío" = SOLO compras incluidas (sin MSI, porque MSI ya se descuenta en sección MSI del dashboard)
-      // "MSI total" = solo informativo del MSI bruto del mes
       const totalMsiBrutoMes = msisTar.reduce((a,m)=>a+(m.monto/m.plazo),0);
+      const totalMsiMioBrutoMes = msisTar.filter(m=>m.incluir==='SI').reduce((a,m)=>a+(m.monto/m.plazo),0);
       const totalTarjetaBruto = totalMovTodo + totalMsiBrutoMes;
-      const totalMioBruto = totalMovMio; // sin MSI
+      const totalMioBruto = totalMovMio + totalMsiMioBrutoMes;
       return `<div class="tdc-card ${t.color||'tdc-b'}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2px">
           <div class="tdc-name">${t.nombre}</div>

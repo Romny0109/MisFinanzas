@@ -968,10 +968,10 @@
     <div class="frow"><div class="fg"><div class="fl">Tarjeta</div><select class="fi" id="msi-tar" onchange="actualizarPlazoCalculadoMsi()"></select></div></div>
     <div class="frow"><div class="fg"><div class="fl">Concepto</div><input class="fi" id="msi-c" placeholder="Ej: Laptop, TV, Celular"></div></div>
     <div class="frow">
-      <div class="fg"><div class="fl">Monto total $</div><input class="fi" type="number" id="msi-m" inputmode="decimal" oninput="calcMsiPago()"></div>
-      <div class="fg"><div class="fl">Plazo (meses)</div><input class="fi" type="number" id="msi-pl" max="60" inputmode="decimal" oninput="calcMsiPago()"></div>
+      <div class="fg"><div class="fl">Pago mensual $</div><input class="fi" type="number" id="msi-m" inputmode="decimal" oninput="calcMsiPago()" placeholder="Ej: 500"></div>
+      <div class="fg"><div class="fl">Plazo (meses)</div><input class="fi" type="number" id="msi-pl" max="60" inputmode="decimal" oninput="calcMsiPago()" placeholder="Ej: 24"></div>
     </div>
-    <div class="ibox" id="msi-pago-info" style="margin-bottom:10px">Ingresa monto y plazo para ver el pago mensual.</div>
+    <div class="ibox" id="msi-pago-info" style="margin-bottom:10px">Ingresa pago mensual y plazo para ver el costo total.</div>
     <div class="frow"><div class="fg"><div class="fl">📅 Fecha de compra</div><input class="fi" type="date" id="msi-f" onchange="actualizarPlazoCalculadoMsi()"></div></div>
     <div class="ibox" id="msi-plazo-info" style="margin-bottom:10px;display:none;background:rgba(167,139,250,.1);border-left:3px solid var(--purple)"></div>
     <div class="frow"><div class="fg"><div class="fl">¿Es mío?</div><select class="fi" id="msi-inc"><option value="SI">Sí, es mío</option><option value="NO">No (tercero)</option></select></div></div>

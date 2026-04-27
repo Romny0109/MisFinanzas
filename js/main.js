@@ -2826,12 +2826,12 @@ function calcMsiInfo(){
   // legacy
 }
 function calcMsiPago(){
-  const m=parseFloat(id('msi-m').value)||0, pl=parseInt(id('msi-pl').value)||0;
+  const pagoMes=parseFloat(id('msi-m').value)||0, pl=parseInt(id('msi-pl').value)||0;
   const box=id('msi-pago-info');
-  if(!m||!pl){box.className='ibox';box.textContent='Ingresa monto y plazo para ver el pago mensual.';return;}
-  const pago=m/pl;
+  if(!pagoMes||!pl){box.className='ibox';box.textContent='Ingresa pago mensual y plazo para ver el costo total.';return;}
+  const total=pagoMes*pl;
   box.className='obox';
-  box.textContent=`✓ Pago mensual: ${mxn(pago)} (${mxn(m)} ÷ ${pl} meses, sin intereses)`;
+  box.textContent=`✓ Costo total: ${mxn(total)} (${mxn(pagoMes)} × ${pl} meses, sin intereses)`;
   // Si también hay fecha y tarjeta, mostrar plazo calculado
   actualizarPlazoCalculadoMsi();
 }
@@ -2868,17 +2868,20 @@ function actualizarPlazoCalculadoMsi(){
 
 function guardarMsi(){
   const tar=id('msi-tar').value, c=id('msi-c').value.trim();
-  const m=parseFloat(id('msi-m').value)||0;
+  const pagoMes=parseFloat(id('msi-m').value)||0;
   const pl=parseInt(id('msi-pl').value)||0;
   const inc=id('msi-inc').value;
   const fechaCompra=id('msi-f').value;
-  if(!c||!m||!pl){alert('Concepto, monto y plazo son requeridos');return;}
+  if(!c||!pagoMes||!pl){alert('Concepto, pago mensual y plazo son requeridos');return;}
   if(!fechaCompra){alert('La fecha de compra es requerida');return;}
   const hoy=new Date(); hoy.setHours(0,0,0,0);
   const fComp=new Date(fechaCompra+'T12:00:00'); fComp.setHours(0,0,0,0);
   if(fComp>hoy){alert('No puedes agregar una fecha de compra futura');return;}
 
-  const pago = m/pl;
+  // Monto total = pago mensual × plazo
+  const m = pagoMes * pl;
+  const pago = pagoMes;
+
   // Calcular plazo actual automáticamente desde fechaCompra + ciclos de la TDC
   let pagoActual = 1;
   const tarObj = S.tarjetas.find(t => t.nombre === tar);
@@ -4003,6 +4006,10 @@ window.renderMsi = function(){
         </div>
       </div>
       <div class="prog"><div class="prog-f" style="width:${Math.round(plazoActual/m.plazo*100)}%;background:${excl?'var(--red)':'var(--purple)'}"></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">
+        <span style="font-size:11px;color:var(--text2)">Costo total del producto:</span>
+        <span style="font-size:13px;font-weight:700;color:var(--purple);font-family:var(--mono)">${mxn(m.monto)}</span>
+      </div>
       <div class="msi-actions">
         <span class="badge ${excl?'r':'g'}" onclick="toggleMsiSec(${i})" style="cursor:pointer">${excl?'✕ no mío':'✓ mío'}</span>
         <span class="ch-del" onclick="confirmarDelMsi(${i})">×</span>

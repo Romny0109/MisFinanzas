@@ -609,9 +609,16 @@ function renderPeriodoNav(){
     if(esActual && !S.periodoCerrado && hoy >= p.ini){
       banner.classList.add('show');
       const dias = Math.round((p.fin-hoy)/(1000*60*60*24));
-      id('close-sub').textContent = hoy > p.fin
-        ? `El periodo ${lbl} ya terminó. Guárdalo para avanzar.`
-        : `Periodo activo — faltan ${dias} día${dias===1?'':'s'}. Guarda cuando quieras.`;
+      const titleEl = id('close-title');
+      if(hoy > p.fin){
+        // Sí terminó
+        if(titleEl) titleEl.textContent = 'Periodo terminado';
+        id('close-sub').textContent = `El periodo ${lbl} ya terminó. Guárdalo para avanzar.`;
+      } else {
+        // Sigue activo, falta para terminar
+        if(titleEl) titleEl.textContent = 'Periodo activo';
+        id('close-sub').textContent = `Faltan ${dias} día${dias===1?'':'s'} para que termine. Guarda cuando quieras.`;
+      }
     } else {
       banner.classList.remove('show');
     }
@@ -4575,6 +4582,18 @@ function generarNotificacionesRaw(){
     if(s.freqSvc === 'SEMANAL') return; // omitir semanales
     const f = calcProxPagoSvcDate(s);
     if(!f) return;
+    // Respetar periodoAgregadoLbl: si el servicio se creó en un periodo futuro a HOY,
+    // no generar notificaciones para fechas anteriores al inicio de ese periodo.
+    if(s.periodoAgregadoLbl){
+      const idxAgreg = PERIODOS.findIndex(per => per.lbl === s.periodoAgregadoLbl);
+      if(idxAgreg >= 0){
+        const pAgreg = PERIODOS[idxAgreg];
+        const pIniAgreg = new Date(pAgreg.ini); pIniAgreg.setHours(0,0,0,0);
+        // Si la fecha del próximo pago es ANTES del inicio del periodo en que se agregó,
+        // no es una notificación válida (el servicio aún no "ha empezado")
+        if(f < pIniAgreg) return;
+      }
+    }
     const dDias = _diasEntre(hoy, f);
     if(dDias < -30 || dDias > 60) return;
     const freqStr = s.freqSvc === 'QUINCENAL' ? 'Quincenal' : freqLabel(s.cadacuanto||1);

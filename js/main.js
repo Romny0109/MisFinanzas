@@ -880,6 +880,44 @@ function cicloVisibleTarjeta(tar){
   };
 }
 
+// Ciclo visible AJUSTADO al periodo navegado.
+// Si debenLimpiarse(tar) es true en el periodo actual, avanzamos al siguiente ciclo
+// (porque el ciclo viejo ya fue cubierto y ahora se ve el nuevo).
+function cicloVisibleEnPeriodo(tar){
+  const cv = cicloVisibleTarjeta(tar);
+  if(!debenLimpiarse(tar)){
+    return cv;
+  }
+  // AVANZAR un ciclo: si ya se limpiaron, el "visible" ahora es el siguiente
+  function fechaSegura(y, m, dia){
+    const maxD = new Date(y, m+1, 0).getDate();
+    const d = new Date(y, m, Math.min(dia, maxD));
+    d.setHours(0,0,0,0);
+    return d;
+  }
+  // Nuevo corteIni = corteIni viejo + 1 mes (mismo día de corte)
+  const ny = cv.corteIni.getFullYear();
+  const nm = cv.corteIni.getMonth() + 1;
+  const corteIni2 = fechaSegura(ny, nm, tar.corte);
+  // Nuevo corteFin = día antes del nuevo corte siguiente
+  const corteIniNext = fechaSegura(corteIni2.getFullYear(), corteIni2.getMonth()+1, tar.corte);
+  const corteFin2 = new Date(corteIniNext); corteFin2.setDate(corteFin2.getDate()-1);
+  // Nuevo límite
+  let limite2;
+  if(tar.modo === 'DÍA DEL MES'){
+    limite2 = fechaSegura(corteIniNext.getFullYear(), corteIniNext.getMonth(), tar.pago);
+    if(limite2 <= corteIniNext) limite2 = fechaSegura(corteIniNext.getFullYear(), corteIniNext.getMonth()+1, tar.pago);
+  } else {
+    limite2 = new Date(corteIniNext); limite2.setDate(corteIniNext.getDate()+(tar.pago||20));
+  }
+  return {
+    corteIni: corteIni2, corteFin: corteFin2,
+    limite: limite2,
+    limiteStr: limite2.toISOString().split('T')[0],
+    cicloLabel: `${corteIni2.toLocaleDateString('es-MX',{day:'2-digit',month:'short'})} → ${corteFin2.toLocaleDateString('es-MX',{day:'2-digit',month:'short'})}`
+  };
+}
+
 // ═══════════════════════════════════════════════════════
 // HELPERS MSI — encontrar n-ésimo día de cobro y siguiente periodo
 // ═══════════════════════════════════════════════════════
@@ -1341,7 +1379,7 @@ function debenLimpiarse(tar){
 
 function movPerteneceAlCicloVisible(tar, fechaMov){
   if(!fechaMov) return true;
-  const cv = cicloVisibleTarjeta(tar);
+  const cv = cicloVisibleEnPeriodo(tar);
   const f = new Date(fechaMov+'T12:00:00');
   return f >= cv.corteIni && f <= cv.corteFin;
 }
@@ -1655,10 +1693,10 @@ function calcTotalMsi(){
 }
 
 // Movimientos: total de la tarjeta dividido entre quincenas hasta límite del ciclo visible
-// Solo si NO deben limpiarse
+// Calcula el total a descontar por tarjeta en este periodo.
+// Usa cicloVisibleEnPeriodo: si las 3 condiciones se cumplen, ya avanza al siguiente ciclo.
 function calcTotalMovPorTarjeta(tar){
-  if(debenLimpiarse(tar)) return 0;
-  const cv = cicloVisibleTarjeta(tar);
+  const cv = cicloVisibleEnPeriodo(tar);
   const hoy = new Date(); hoy.setHours(0,0,0,0);
   const n = Math.max(1, contarDiasCobro(cv.limiteStr));
   const total = S.movimientos
@@ -2716,9 +2754,28 @@ function delMov(i){
   S.movimientos.splice(i,1); save(); window.renderTDC(); renderPrincipal();
 }
 function limpiarMovimientos(){
-  if(confirm('¿Limpiar todos los movimientos?')){
-    supa.from('movimientos').delete().eq('user_id', UID).catch(console.warn);
-    supa.from('msis').delete().eq('user_id', UID).catch(console.warn);
+  // Si hay tarjeta filtrada, limpiar solo los de esa tarjeta del ciclo visible
+  const filtro = (typeof tdcFiltro !== 'undefined' && tdcFiltro && tdcFiltro !== 'todas') ? tdcFiltro : null;
+  if(filtro){
+    const tar = S.tarjetas.find(t => t.nombre === filtro);
+    if(!tar){ alert('Tarjeta no encontrada'); return; }
+    const movsACerrar = S.movimientos.filter(m => m.tarjeta === filtro && movPerteneceAlCicloVisible(tar, m.fecha));
+    if(!movsACerrar.length){ alert('No hay movimientos en este ciclo para limpiar'); return; }
+    if(!confirm(`¿Limpiar ${movsACerrar.length} movimiento(s) del ciclo visible de "${filtro}"?`)) return;
+    // Borrar en BD y memoria
+    movsACerrar.forEach(m => {
+      if(m.id) supa.from('movimientos').delete().eq('id', m.id).then(()=>{}).catch(console.warn);
+    });
+    S.movimientos = S.movimientos.filter(m => !(m.tarjeta === filtro && movPerteneceAlCicloVisible(tar, m.fecha)));
+    save();
+    window.renderTDC();
+    renderPrincipal();
+    return;
+  }
+  // Sin filtro: limpiar todo (con confirmación más fuerte)
+  if(confirm('¿LIMPIAR TODOS los movimientos y MSI de TODAS las tarjetas? Esto no se puede deshacer.')){
+    supa.from('movimientos').delete().eq('user_id', UID).then(()=>{}).catch(console.warn);
+    supa.from('msis').delete().eq('user_id', UID).then(()=>{}).catch(console.warn);
     S.movimientos=[]; S.msis=[]; save(); window.renderTDC(); renderPrincipal();
   }
 }
@@ -3560,14 +3617,14 @@ window.renderTDC = function(){
   } else {
     cardsEl.innerHTML = S.tarjetas.map((t,i)=>{
       const cicloAct = cicloActualTarjeta(t);
-      const cicloVis = cicloVisibleTarjeta(t);
+      const cicloVis = cicloVisibleEnPeriodo(t);  // ← ahora respeta las 3 condiciones
       const limpiar = debenLimpiarse(t);
       const fmtCorteAct = cicloAct.corteIni.toLocaleDateString('es-MX',{day:'2-digit',month:'short'});
       const fmtLimAct = cicloAct.limite.toLocaleDateString('es-MX',{day:'2-digit',month:'short'});
       const diasPago = Math.max(0,Math.round((cicloAct.limite-hoy)/(1000*60*60*24)));
       const nCobros = Math.max(1, contarDiasCobro(cicloAct.limiteStr));
-      // Movimientos del ciclo visible (solo si no deben limpiarse)
-      const movsTar = limpiar ? [] : S.movimientos.filter(m=>m.tarjeta===t.nombre && movPerteneceAlCicloVisible(t,m.fecha));
+      // Movimientos del ciclo visible (la función movPerteneceAlCicloVisible ya respeta las 3 condiciones)
+      const movsTar = S.movimientos.filter(m=>m.tarjeta===t.nombre && movPerteneceAlCicloVisible(t,m.fecha));
       const totalMovTodo = movsTar.reduce((a,m)=>a+m.monto,0);
       const totalMovMio = movsTar.filter(m=>m.incluir==='SI').reduce((a,m)=>a+m.monto,0);
       // MSI de esta tarjeta (todos, en tiempo real)
@@ -3607,12 +3664,12 @@ window.renderTDC = function(){
     }
   }
 
-  // Label del corte visible (se muestra el corte ANTERIOR al actual)
+  // Label del corte visible (se muestra el corte que corresponde al periodo navegado)
   const lblEl = id('mov-corte-lbl');
   if(lblEl){
     const tarFiltro = tdcFiltro && tdcFiltro!=='todas' ? S.tarjetas.find(t=>t.nombre===tdcFiltro) : (S.tarjetas[0]||null);
     if(tarFiltro){
-      const cv = cicloVisibleTarjeta(tarFiltro);
+      const cv = cicloVisibleEnPeriodo(tarFiltro);
       const fIni = cv.corteIni.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
       const fFin = cv.corteFin.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
       const fLim = cv.limite.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
@@ -3627,12 +3684,11 @@ window.renderTDC = function(){
   id('mov-tar').innerHTML=opts||'<option>Sin tarjetas</option>';
   id('msi-tar').innerHTML=opts||'<option>Sin tarjetas</option>';
 
-  // Movimientos: mostrar del ciclo visible, bloqueados si vista global
+  // Movimientos: mostrar del ciclo visible (la función ya respeta las 3 condiciones)
   const esGlobal = tdcFiltro==='todas';
   const movVisibles = S.movimientos.filter(m=>{
     const tar=S.tarjetas.find(t=>t.nombre===m.tarjeta);
     if(!tar) return false;
-    if(debenLimpiarse(tar)) return false;
     return movPerteneceAlCicloVisible(tar, m.fecha);
   });
   const movF = esGlobal ? movVisibles : movVisibles.filter(m=>m.tarjeta===tdcFiltro);
@@ -3656,7 +3712,7 @@ window.renderTDC = function(){
           <div class="ch-sub">${m.fecha||''} · ${m.tarjeta}</div>
         </div>
         <div class="ch-a ${m.incluir==='NO'?'x':''}">${mxn(m.monto)}</div>
-        ${!esGlobal?`<span class="ch-del" onclick="borrarMov(${i})">×</span>`:''}
+        ${!esGlobal?`<span class="ch-del" onclick="delMov(${i})">×</span>`:''}
       </div>`;
     }).join('');
   }

@@ -135,6 +135,10 @@ async function loadFromSupabase(silencioso=false){
   } catch(e){ console.warn('tarjetas load fail:', e); }
 
   // MOVIMIENTOS
+  // IMPORTANTE: cargamos TODOS los movimientos del usuario.
+  // Los movimientos de TDC NO pertenecen a un periodo de quincena específico:
+  // su visibilidad depende de la FECHA DE COMPRA y del ciclo de la tarjeta.
+  // La lógica de calcTotalMov / cicloVisibleTarjeta los filtra correctamente al renderizar.
   try {
     const {data} = await supa.from('movimientos').select('*').eq('user_id', UID).order('created_at');
     if(data) S.movimientos = data
@@ -142,8 +146,7 @@ async function loadFromSupabase(silencioso=false){
         id:r.id, tarjeta:r.tarjeta, concepto:r.concepto,
         monto:parseFloat(r.monto), fecha:r.fecha||'',
         incluir:r.incluir||'SI', periodo_idx:r.periodo_idx
-      }))
-      .filter(r=>r.periodo_idx===S.periodoIdx);
+      }));
   } catch(e){ console.warn('movimientos load fail:', e); }
 
   // MSIS
@@ -2144,12 +2147,25 @@ function renderTDC(){
   id('mov-tar').innerHTML = opts||'<option>Sin tarjetas</option>';
   id('msi-tar').innerHTML = opts||'<option>Sin tarjetas</option>';
 
-  // Movimientos
+  // Movimientos: mostrar solo los que pertenecen al ciclo visible de su tarjeta
+  // (la fecha de compra debe caer en el ciclo de corte cuya fecha de pago es la del periodo)
   const movEl = id('mov-list');
-  if(!S.movimientos.length){
-    movEl.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin movimientos — agrega el primero</div>';
+  // Filtrar por tarjeta seleccionada también si hay filtro
+  const movsVisibles = S.movimientos.filter(m => {
+    const tar = S.tarjetas.find(t => t.nombre === m.tarjeta);
+    if(!tar) return true; // si no encuentra tarjeta, mostrar (por seguridad)
+    if(typeof movPerteneceAlCicloVisible === 'function'){
+      return movPerteneceAlCicloVisible(tar, m.fecha);
+    }
+    return true;
+  });
+  if(!movsVisibles.length){
+    movEl.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin movimientos en este ciclo — agrega uno</div>';
   } else {
-    movEl.innerHTML = S.movimientos.map((m,i)=>`
+    movEl.innerHTML = movsVisibles.map((m)=>{
+      // Buscar el índice real en S.movimientos para que toggle/del funcionen
+      const i = S.movimientos.indexOf(m);
+      return `
       <div class="chi" id="chi-${i}">
         <div class="chk ${m.incluir==='SI'?'on':'off'}" onclick="toggleMov(${i})">${m.incluir==='SI'?'✓':'✕'}</div>
         <div class="ch-info">
@@ -2158,7 +2174,7 @@ function renderTDC(){
         </div>
         <div class="ch-a ${m.incluir==='NO'?'x':''}">${mxn(m.monto)}</div>
         <span class="ch-del" onclick="delMov(${i})">×</span>
-      </div>`).join('');
+      </div>`}).join('');
   }
 
   // MSI

@@ -398,7 +398,7 @@
         <span>📋 Movimientos del periodo</span>
         <div style="display:flex;gap:6px">
           <button class="clear-btn" onclick="limpiarMovimientos()">Limpiar</button>
-          <button class="add-btn" onclick="if(!S.tarjetas.length){alert('Primero agrega una tarjeta de crédito');return;} openModal('m-mov')">+ mov</button>
+          <button class="add-btn" onclick="abrirAgregarMov()">+ mov</button>
         </div>
       </div>
       <!-- Label del corte que se está viendo -->
@@ -946,12 +946,13 @@
   <div class="modal">
     <div class="m-handle"></div>
     <div class="m-title">Nuevo movimiento</div>
-    <div class="frow"><div class="fg"><div class="fl">Tarjeta</div><select class="fi" id="mov-tar"></select></div></div>
+    <div class="frow"><div class="fg"><div class="fl">Tarjeta</div><select class="fi" id="mov-tar" onchange="actualizarRangoMov()"></select></div></div>
     <div class="frow"><div class="fg"><div class="fl">Concepto</div><input class="fi" id="mov-c" placeholder="Ej: Súper, Gasolina"></div></div>
     <div class="frow">
       <div class="fg"><div class="fl">Monto $</div><input class="fi" type="number" id="mov-m" placeholder="450" inputmode="decimal"></div>
       <div class="fg"><div class="fl">Fecha</div><input class="fi" type="date" id="mov-f"></div>
     </div>
+    <div class="ibox" id="mov-rango-info" style="margin-bottom:10px;display:none;background:rgba(167,139,250,.1);border-left:3px solid var(--purple);font-size:11px"></div>
     <div class="frow"><div class="fg"><div class="fl">¿Incluir en mis pagos?</div><select class="fi" id="mov-inc"><option value="SI">Sí, es mío</option><option value="NO">No (tercero)</option></select></div></div>
     <div class="m-footer">
       <button class="btn btn-g" style="flex:1" onclick="closeModal('m-mov')">Cancelar</button>

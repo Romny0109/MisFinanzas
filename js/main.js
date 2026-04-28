@@ -2776,15 +2776,78 @@ function limpiarExtras(){
 }
 
 // MOVIMIENTOS
+// Abre el modal de movimiento con la fecha precargada al rango del ciclo visible
+window.abrirAgregarMov = function(){
+  if(!S.tarjetas.length){ alert('Primero agrega una tarjeta de crédito'); return; }
+  // Determinar tarjeta: la filtrada en TDC, o la primera
+  let tarNombre = (typeof tdcFiltro !== 'undefined' && tdcFiltro && tdcFiltro !== 'todas') ? tdcFiltro : S.tarjetas[0].nombre;
+  // Esperar a que el modal abra para luego setear valores
+  openModal('m-mov');
+  setTimeout(()=>{
+    const sel = document.getElementById('mov-tar');
+    if(sel) sel.value = tarNombre;
+    actualizarRangoMov(); // setea fecha y muestra info
+    // Limpiar concepto y monto por si quedaron de antes
+    if(id('mov-c')) id('mov-c').value = '';
+    if(id('mov-m')) id('mov-m').value = '';
+  }, 50);
+};
+
+// Actualiza la fecha sugerida y el cuadro informativo según la tarjeta seleccionada
+window.actualizarRangoMov = function(){
+  const sel = document.getElementById('mov-tar');
+  const fechaInp = document.getElementById('mov-f');
+  const infoBox = document.getElementById('mov-rango-info');
+  if(!sel || !fechaInp || !infoBox) return;
+  const tarNombre = sel.value;
+  const tar = S.tarjetas.find(t => t.nombre === tarNombre);
+  if(!tar){ infoBox.style.display = 'none'; return; }
+  // Obtener el ciclo visible para el periodo navegado
+  const cv = (typeof cicloVisibleEnPeriodo === 'function') ? cicloVisibleEnPeriodo(tar) : cicloVisibleTarjeta(tar);
+  if(!cv){ infoBox.style.display = 'none'; return; }
+  const iniStr = _isoStr(cv.corteIni);
+  const finStr = _isoStr(cv.corteFin);
+  const fechaActual = fechaInp.value;
+  // Si la fecha actual del input está vacía o fuera del rango visible, ajustar a HOY si cabe, si no al fin del rango
+  let necesitaCambio = false;
+  if(!fechaActual){
+    necesitaCambio = true;
+  } else {
+    const fAct = new Date(fechaActual+'T12:00:00');
+    if(fAct < cv.corteIni || fAct > cv.corteFin) necesitaCambio = true;
+  }
+  if(necesitaCambio){
+    const hoy = new Date(); hoy.setHours(0,0,0,0);
+    const sugerida = (hoy >= cv.corteIni && hoy <= cv.corteFin) ? _isoStr(hoy) : finStr;
+    fechaInp.value = sugerida;
+  }
+  // Limitar el input al rango (browsers respetan min/max para validar)
+  fechaInp.min = iniStr;
+  fechaInp.max = finStr;
+  // Mostrar el info box con el rango
+  const fIni = cv.corteIni.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
+  const fFin = cv.corteFin.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
+  infoBox.style.display = '';
+  infoBox.innerHTML = `📅 La fecha debe caer entre <strong>${fIni}</strong> y <strong>${fFin}</strong> (ciclo visible de ${tarNombre}).`;
+};
+
 function guardarMov(){
   const tar=id('mov-tar').value, c=id('mov-c').value.trim(), m=parseFloat(id('mov-m').value)||0, f=id('mov-f').value, inc=id('mov-inc').value;
   if(!c||!m){alert('Concepto y monto son requeridos');return;}
-  // Validar fecha después del corte (si la función existe)
-  if(f && typeof validarFechaMovimiento === 'function'){
-    try {
-      const v = validarFechaMovimiento(tar, f);
-      if(v && v.ok === false){ alert(v.msg||'Fecha inválida'); return; }
-    } catch(e){ console.warn('validarFechaMovimiento:', e); /* continuar */ }
+  if(!f){alert('La fecha es requerida');return;}
+  // Validar que la fecha caiga dentro del ciclo visible de la tarjeta
+  const tarObj = S.tarjetas.find(t => t.nombre === tar);
+  if(tarObj){
+    const cv = (typeof cicloVisibleEnPeriodo === 'function') ? cicloVisibleEnPeriodo(tarObj) : cicloVisibleTarjeta(tarObj);
+    if(cv){
+      const fMov = new Date(f+'T12:00:00'); fMov.setHours(0,0,0,0);
+      if(fMov < cv.corteIni || fMov > cv.corteFin){
+        const fIni = cv.corteIni.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'});
+        const fFin = cv.corteFin.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'});
+        alert(`⚠️ La fecha está fuera del ciclo visible.\n\nPara ${tar} (periodo navegado), debes usar una fecha entre ${fIni} y ${fFin}.\n\nSi quieres registrar un movimiento de otro ciclo, primero navega al periodo correcto.`);
+        return;
+      }
+    }
   }
   const mov={tarjeta:tar,concepto:c,monto:m,fecha:f,incluir:inc};
   S.movimientos.push(mov);
@@ -4068,9 +4131,15 @@ window.renderMsi = function(){
   if(id('tot-msi-section')) id('tot-msi-section').textContent = '-'+mxn(totalMsi);
 };
 
-function toggleMsiSec(i){
+async function toggleMsiSec(i){
   S.msis[i].incluir = S.msis[i].incluir==='SI'?'NO':'SI';
-  save(); window.renderMsi(); window.renderTDC(); renderPrincipal();
+  // Persistir en BD
+  if(S.msis[i].id){
+    try { await supa.from('msis').update({incluir:S.msis[i].incluir}).eq('id',S.msis[i].id); }
+    catch(e){ console.warn('toggleMsiSec update fail:', e); }
+  }
+  save();
+  window.renderMsi(); window.renderTDC(); renderPrincipal();
 }
 
 async function confirmarDelMsi(i){

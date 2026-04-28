@@ -156,7 +156,9 @@ async function loadFromSupabase(silencioso=false){
       id:r.id, tarjeta:r.tarjeta, concepto:r.concepto,
       monto:parseFloat(r.monto)||0, plazo:r.plazo||12,
       pago:parseFloat(r.pago)||0, incluir:r.incluir||'SI',
-      pagoActual:r.pago_actual||1, saldoPendiente:parseFloat(r.saldo_pendiente)||0
+      pagoActual:r.pago_actual||1, saldoPendiente:parseFloat(r.saldo_pendiente)||0,
+      fechaCompra: r.fecha_compra || '',
+      fechaAgregado: r.fecha_agregado || r.fecha_compra || todayStr()
     }));
   } catch(e){ console.warn('msis load fail:', e); }
 
@@ -307,7 +309,9 @@ async function saveMsiDB(m){
       user_id: UID, tarjeta: m.tarjeta, concepto: m.concepto,
       monto: m.monto, plazo: m.plazo, pago: m.pago,
       incluir: m.incluir||'SI', pago_actual: m.pagoActual||1,
-      saldo_pendiente: m.saldoPendiente||0
+      saldo_pendiente: m.saldoPendiente||0,
+      fecha_compra: m.fechaCompra || null,
+      fecha_agregado: m.fechaAgregado || todayStr()
     }).select().single();
     if(data) m.id = data.id;
   } catch(e){ console.warn('saveMsiDB:', e); }
@@ -1034,11 +1038,21 @@ function calcMsiEnPeriodo(m, tar){
   let plazoActual = m.pagoActual || 1;
 
   // Sincronizar cicloActual con plazoActual.
-  // ESTRATEGIA: anclar al ciclo "actual de HOY" cuando se agregó el MSI.
-  // Este es el ciclo cuyo límite de pago es el siguiente del momento en que se agregó.
-  // Así no dependemos de cálculos retroactivos de meses viejos (que pueden estar mal por
-  // particularidades del banco, día hábil/festivo).
-  let cicloActual = cicloActualTarjeta(tar, fAgre);
+  // ESTRATEGIA: anclar al ciclo VISIBLE desde fAgre (el ciclo cuyo corte ya cerró
+  // pero cuyo pago aún no llega). Ese es el plazo "actual" del usuario al momento
+  // de agregar el MSI.
+  // No dependemos de cálculos retroactivos por meses viejos (que pueden tener
+  // particularidades de día hábil/festivo en el banco).
+  const _saveIdx = S.periodoIdx;
+  // Truco: para usar cicloVisibleTarjeta con fAgre como "hoy", llamamos a una
+  // versión que reciba refDate. cicloActualTarjeta acepta refDate, pero cicloVisible
+  // no. Calculamos manualmente:
+  //   cicloVisible = ciclo anterior al cicloActivo desde fAgre
+  const cicloActivoDesdeAgre = cicloActualTarjeta(tar, fAgre);
+  // El ciclo "visible" es el que JUSTO terminó antes
+  const dayBeforeCorte = new Date(cicloActivoDesdeAgre.corteIni);
+  dayBeforeCorte.setDate(dayBeforeCorte.getDate()-1);
+  let cicloActual = cicloActualTarjeta(tar, dayBeforeCorte);
 
   // desdeConteo: para el primer plazo "contabilizado" (cuando se agregó el MSI),
   // contar desde fAgre. Para plazos siguientes, será reemplazado por el día siguiente

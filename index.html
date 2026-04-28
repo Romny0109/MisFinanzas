@@ -974,6 +974,22 @@
     <div class="ibox" id="msi-pago-info" style="margin-bottom:10px">Ingresa pago mensual y plazo para ver el costo total.</div>
     <div class="frow"><div class="fg"><div class="fl">📅 Fecha de compra</div><input class="fi" type="date" id="msi-f" onchange="actualizarPlazoCalculadoMsi()"></div></div>
     <div class="ibox" id="msi-plazo-info" style="margin-bottom:10px;display:none;background:rgba(167,139,250,.1);border-left:3px solid var(--purple)"></div>
+
+    <!-- Ajuste manual del plazo (para casos donde el banco tenga su rareza) -->
+    <div class="frow"><div class="fg" style="flex-direction:row;align-items:center;gap:10px">
+      <label class="cfg-check" style="margin:0">
+        <input type="checkbox" id="msi-ajuste-chk" onchange="toggleAjusteMsi()">
+        ⚙️ El plazo no coincide con mi estado de cuenta
+      </label>
+    </div></div>
+    <div id="msi-ajuste-wrap" style="display:none;background:rgba(251,191,36,.06);border-left:3px solid var(--amber);padding:10px 12px;margin-bottom:10px;border-radius:0 8px 8px 0">
+      <div class="frow"><div class="fg">
+        <div class="fl">Plazo actual real (según tu estado de cuenta)</div>
+        <input class="fi" type="number" id="msi-ajuste-plazo" min="1" placeholder="Ej: 4">
+      </div></div>
+      <div style="font-size:10.5px;color:var(--text3);margin-top:2px">Útil cuando el banco mueve fechas de corte por días hábiles/festivos.</div>
+    </div>
+
     <div class="frow"><div class="fg"><div class="fl">¿Es mío?</div><select class="fi" id="msi-inc"><option value="SI">Sí, es mío</option><option value="NO">No (tercero)</option></select></div></div>
     <div class="m-footer">
       <button class="btn btn-g" style="flex:1" onclick="closeModal('m-msi')">Cancelar</button>

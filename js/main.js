@@ -2866,6 +2866,14 @@ function actualizarPlazoCalculadoMsi(){
   box.innerHTML = `📊 Según la fecha de compra, ya has pagado <strong>${plazo-1}</strong> mensualidades. El próximo pago será el <strong>${plazo}</strong> de ${pl}.`;
 }
 
+// Toggle del ajuste manual de plazo
+function toggleAjusteMsi(){
+  const chk = document.getElementById('msi-ajuste-chk');
+  const wrap = document.getElementById('msi-ajuste-wrap');
+  if(!chk || !wrap) return;
+  wrap.style.display = chk.checked ? '' : 'none';
+}
+
 function guardarMsi(){
   const tar=id('msi-tar').value, c=id('msi-c').value.trim();
   const pagoMes=parseFloat(id('msi-m').value)||0;
@@ -2882,19 +2890,36 @@ function guardarMsi(){
   const m = pagoMes * pl;
   const pago = pagoMes;
 
-  // Calcular plazo actual automáticamente desde fechaCompra + ciclos de la TDC
+  // Calcular plazo actual: si el usuario activó el ajuste manual, usar ese valor.
+  // Si no, calcular automáticamente desde fechaCompra + ciclos de la TDC.
   let pagoActual = 1;
-  const tarObj = S.tarjetas.find(t => t.nombre === tar);
-  if(tarObj){
-    let ciclo = cicloActualTarjeta(tarObj, fComp);
-    let plazo = 1;
-    let safety = 0;
-    while(ciclo.limite < hoy && plazo < pl && safety < 120){
-      plazo++;
-      ciclo = avanzarCiclo(ciclo, tarObj);
-      safety++;
+  const ajusteChk = document.getElementById('msi-ajuste-chk');
+  const ajusteManual = ajusteChk && ajusteChk.checked;
+  if(ajusteManual){
+    const valor = parseInt(document.getElementById('msi-ajuste-plazo').value)||0;
+    if(!valor || valor < 1){
+      alert('Indica el plazo actual real (mayor o igual a 1)');
+      return;
     }
-    pagoActual = Math.min(pl, plazo);
+    if(valor > pl){
+      alert(`El plazo no puede ser mayor al total (${pl})`);
+      return;
+    }
+    pagoActual = valor;
+  } else {
+    // Cálculo automático
+    const tarObj = S.tarjetas.find(t => t.nombre === tar);
+    if(tarObj){
+      let ciclo = cicloActualTarjeta(tarObj, fComp);
+      let plazo = 1;
+      let safety = 0;
+      while(ciclo.limite < hoy && plazo < pl && safety < 120){
+        plazo++;
+        ciclo = avanzarCiclo(ciclo, tarObj);
+        safety++;
+      }
+      pagoActual = Math.min(pl, plazo);
+    }
   }
   const saldoPendiente = Math.max(0, (pl - pagoActual + 1) * pago);
   const fechaAgregado = todayStr();
@@ -2903,8 +2928,14 @@ function guardarMsi(){
   S.msis.push(msi);
   saveMsiDB(msi).catch(console.warn);
   save();
+  // Limpiar campos
   id('msi-c').value=''; id('msi-m').value=''; id('msi-pl').value=''; id('msi-f').value='';
   if(id('msi-plazo-info')) id('msi-plazo-info').style.display='none';
+  if(ajusteChk){ ajusteChk.checked = false; }
+  const ajusteWrap = document.getElementById('msi-ajuste-wrap');
+  if(ajusteWrap) ajusteWrap.style.display = 'none';
+  if(document.getElementById('msi-ajuste-plazo')) document.getElementById('msi-ajuste-plazo').value = '';
+
   closeModal('m-msi'); window.renderMsi(); window.renderTDC(); renderPrincipal();
 }
 function toggleMsi(i){

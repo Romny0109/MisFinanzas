@@ -1029,19 +1029,20 @@ function calcMsiEnPeriodo(m, tar){
   const fComp = new Date((m.fechaCompra||todayStr())+'T12:00:00'); fComp.setHours(0,0,0,0);
   const fAgre = new Date((m.fechaAgregado||todayStr())+'T12:00:00'); fAgre.setHours(0,0,0,0);
 
-  // Plazo inicial guardado (calculado desde fechaCompra al guardar el MSI)
+  // Plazo inicial guardado (calculado desde fechaCompra al guardar el MSI,
+  // o ajustado manualmente por el usuario)
   let plazoActual = m.pagoActual || 1;
 
-  // Sincronizar cicloActual con plazoActual: avanzar (plazoActual - 1) ciclos
-  // desde el ciclo de la compra hasta el plazo correspondiente
-  let cicloActual = cicloActualTarjeta(tar, fComp);
-  for(let i = 1; i < plazoActual; i++){
-    cicloActual = avanzarCiclo(cicloActual, tar);
-  }
+  // Sincronizar cicloActual con plazoActual.
+  // ESTRATEGIA: anclar al ciclo "actual de HOY" cuando se agregó el MSI.
+  // Este es el ciclo cuyo límite de pago es el siguiente del momento en que se agregó.
+  // Así no dependemos de cálculos retroactivos de meses viejos (que pueden estar mal por
+  // particularidades del banco, día hábil/festivo).
+  let cicloActual = cicloActualTarjeta(tar, fAgre);
 
-  // desdeConteo:
-  //   - Para el "primer plazo contabilizado" (plazo cuando se agregó el MSI): desde fAgre
-  //   - Para plazos siguientes ya iterados: día siguiente al límite del plazo anterior
+  // desdeConteo: para el primer plazo "contabilizado" (cuando se agregó el MSI),
+  // contar desde fAgre. Para plazos siguientes, será reemplazado por el día siguiente
+  // al límite anterior.
   let desdeConteo = new Date(fAgre);
   desdeConteo.setHours(0,0,0,0);
 

@@ -405,6 +405,8 @@
       <div id="mov-corte-lbl" style="font-size:11px;color:var(--text2);margin:-6px 0 10px 0;line-height:1.4"></div>
       <!-- Filtro por tarjeta -->
       <div id="tdc-filtro-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
+      <!-- Totales por tarjeta (filtrada) o globales (todas) -->
+      <div id="mov-totales-box" style="margin-bottom:12px"></div>
       <div id="mov-list"><div class="empty"><div class="empty-icon">—</div>Sin movimientos — agrega el primero</div></div>
       <div class="sec-l">MSI activos <span style="font-size:10px;color:var(--text3)">(solo lectura — gestiona en pestaña MSI)</span></div>
       <div id="msi-list"></div>
@@ -442,8 +444,12 @@
     <div class="card">
       <div class="card-hdr">
         <span>MSI Activos</span>
-        <button class="add-btn" onclick="if(!S.tarjetas.length){alert('Primero agrega una tarjeta');return;} openModal('m-msi')">+ Agregar MSI</button>
+        <button class="add-btn" onclick="abrirAgregarMsi()">+ Agregar MSI</button>
       </div>
+      <!-- Filtro por tarjeta -->
+      <div id="msi-filtro-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
+      <!-- Caja informativa de totales -->
+      <div id="msi-totales-box" style="margin-bottom:12px"></div>
       <div id="msi-section-list"><div class="empty">Sin MSI registrados</div></div>
     </div>
     <div class="card" style="border-color:rgba(167,139,250,.3);background:rgba(167,139,250,.04)">
@@ -953,7 +959,7 @@
       <div class="fg"><div class="fl">Fecha</div><input class="fi" type="date" id="mov-f"></div>
     </div>
     <div class="ibox" id="mov-rango-info" style="margin-bottom:10px;display:none;background:rgba(167,139,250,.1);border-left:3px solid var(--purple);font-size:11px"></div>
-    <div class="frow"><div class="fg"><div class="fl">¿Incluir en mis pagos?</div><select class="fi" id="mov-inc"><option value="SI">Sí, es mío</option><option value="NO">No (tercero)</option></select></div></div>
+    <div class="frow"><div class="fg"><div class="fl">¿Incluir en mis pagos?</div><select class="fi" id="mov-inc"><option value="" disabled selected>Selecciona una opción...</option><option value="SI">Sí, es mío</option><option value="NO">No (tercero)</option></select></div></div>
     <div class="m-footer">
       <button class="btn btn-g" style="flex:1" onclick="closeModal('m-mov')">Cancelar</button>
       <button class="btn btn-p" style="flex:2" onclick="guardarMov()">Guardar movimiento</button>
@@ -991,7 +997,7 @@
       <div style="font-size:10.5px;color:var(--text3);margin-top:2px">Útil cuando el banco mueve fechas de corte por días hábiles/festivos.</div>
     </div>
 
-    <div class="frow"><div class="fg"><div class="fl">¿Es mío?</div><select class="fi" id="msi-inc"><option value="SI">Sí, es mío</option><option value="NO">No (tercero)</option></select></div></div>
+    <div class="frow"><div class="fg"><div class="fl">¿Es mío?</div><select class="fi" id="msi-inc"><option value="" disabled selected>Selecciona una opción...</option><option value="SI">Sí, es mío</option><option value="NO">No (tercero)</option></select></div></div>
     <div class="m-footer">
       <button class="btn btn-g" style="flex:1" onclick="closeModal('m-msi')">Cancelar</button>
       <button class="btn btn-p" style="flex:2" onclick="guardarMsi()">Registrar MSI</button>

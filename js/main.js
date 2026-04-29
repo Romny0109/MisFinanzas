@@ -1742,17 +1742,106 @@ function calcTotalMsi(){
   },0);
 }
 
+// ═══════════════════════════════════════════════════════════════
+// CALCULAR INFO DE TARJETA EN EL PERIODO NAVEGADO
+// ═══════════════════════════════════════════════════════════════
+// Devuelve un objeto con toda la info que necesitan los renders y los totales.
+// {
+//   cv: ciclo visible,
+//   nTotal: # de quincenas/semanas que dividen el pago de este ciclo,
+//   quincenaActual: en cuál estamos,
+//   movsTodos: array de movs del ciclo (mios + no mios),
+//   totalMio, totalNoMio,
+//   pagoQuincenaMio, pagoQuincenaNoMio (mio/nTotal, noMio/nTotal),
+//   limiteStr: fecha de pago de este ciclo,
+//   standby: true si la tarjeta debe quedar en "stand-by"
+// }
+function calcInfoTarjetaEnPeriodo(tar){
+  const p = PERIODOS[S.periodoIdx];
+  if(!p) return null;
+  const pIni = new Date(p.ini); pIni.setHours(0,0,0,0);
+  const pFin = new Date(p.fin); pFin.setHours(0,0,0,0);
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+
+  const cv = cicloVisibleEnPeriodo(tar);
+  if(!cv) return null;
+
+  // Movimientos del ciclo visible
+  const movsTodos = S.movimientos.filter(m => m.tarjeta === tar.nombre && movPerteneceAlCicloVisible(tar, m.fecha));
+  const totalMio = movsTodos.filter(m => m.incluir === 'SI').reduce((a, m) => a + m.monto, 0);
+  const totalNoMio = movsTodos.filter(m => m.incluir === 'NO').reduce((a, m) => a + m.monto, 0);
+
+  // Cálculo de nTotal (primer plazo contabilizado vs siguientes)
+  // Regla: si hay alguna fecha de mov dentro del ciclo Y esa fecha es el día más reciente,
+  // contar desde el día más temprano de los movs hasta el límite. Pero más simple y
+  // consistente con MSI: usar la fecha de MOV más temprana del ciclo (porque eso es
+  // cuando "empieza" para el usuario).
+  // Si no hay movs aún, usar HOY si hoy >= corteIni, si no usar corteIni.
+  let desdeConteo;
+  if(movsTodos.length > 0){
+    // Tomar la fecha del mov más temprano del ciclo
+    const fechasMovs = movsTodos.map(m => new Date(m.fecha+'T12:00:00'));
+    fechasMovs.sort((a,b) => a-b);
+    desdeConteo = new Date(fechasMovs[0]);
+    desdeConteo.setHours(0,0,0,0);
+  } else {
+    desdeConteo = hoy >= cv.corteIni ? new Date(hoy) : new Date(cv.corteIni);
+    desdeConteo.setHours(0,0,0,0);
+  }
+  // Para que los plazos siguientes (NO el primero contabilizado) se midan correctamente,
+  // si desdeConteo < corteIni → usar corteIni (caso: estamos en plazo siguiente)
+  if(desdeConteo < cv.corteIni){
+    desdeConteo = new Date(cv.corteIni);
+    desdeConteo.setHours(0,0,0,0);
+  }
+
+  const nTotal = Math.max(1, contarDiasCobro(cv.limiteStr, _isoStr(desdeConteo)));
+
+  // ¿En qué quincena estamos respecto al periodo navegado?
+  // cobrosAntes = quincenas cubiertas en periodos anteriores
+  const pIniMenos1 = new Date(pIni); pIniMenos1.setDate(pIniMenos1.getDate()-1);
+  const cobrosAntes = contarDiasCobro(_isoStr(pIniMenos1), _isoStr(desdeConteo));
+
+  // STANDBY: si en el periodo anterior YA se completaron todas las quincenas (cobrosAntes >= nTotal)
+  // pero las 3 condiciones para limpiar NO se cumplen aún (la tarjeta sigue mostrando este ciclo).
+  // Eso significa que el pago ya se hizo en el periodo anterior y debe quedar "en pausa"
+  // hasta que llegue el siguiente corte.
+  const standby = cobrosAntes >= nTotal;
+
+  // Quincena actual (solo si NO está en standby)
+  let quincenaActual = 0;
+  if(!standby){
+    const effectiveEnd = pFin < cv.limite ? _isoStr(pFin) : cv.limiteStr;
+    const cobrosHastaFin = contarDiasCobro(effectiveEnd, _isoStr(desdeConteo));
+    quincenaActual = Math.min(nTotal, Math.max(1, cobrosHastaFin));
+  }
+
+  const pagoQuincenaMio = standby ? 0 : (totalMio / nTotal);
+  const pagoQuincenaNoMio = standby ? 0 : (totalNoMio / nTotal);
+
+  return {
+    cv, nTotal, quincenaActual,
+    movsTodos, totalMio, totalNoMio,
+    pagoQuincenaMio, pagoQuincenaNoMio,
+    limiteStr: cv.limiteStr,
+    limiteFmt: cv.limite.toLocaleDateString('es-MX',{day:'numeric',month:'long'}),
+    standby
+  };
+}
+
+// Detecta si la tarjeta debe estar en stand-by en el periodo navegado
+function tarjetaEnStandby(tar){
+  const info = calcInfoTarjetaEnPeriodo(tar);
+  return info ? info.standby : false;
+}
+
 // Movimientos: total de la tarjeta dividido entre quincenas hasta límite del ciclo visible
 // Calcula el total a descontar por tarjeta en este periodo.
-// Usa cicloVisibleEnPeriodo: si las 3 condiciones se cumplen, ya avanza al siguiente ciclo.
+// Si la tarjeta está en stand-by → 0 (no se descuenta porque ya se pagó en periodo anterior)
 function calcTotalMovPorTarjeta(tar){
-  const cv = cicloVisibleEnPeriodo(tar);
-  const hoy = new Date(); hoy.setHours(0,0,0,0);
-  const n = Math.max(1, contarDiasCobro(cv.limiteStr));
-  const total = S.movimientos
-    .filter(m=>m.tarjeta===tar.nombre && m.incluir==='SI' && movPerteneceAlCicloVisible(tar, m.fecha))
-    .reduce((a,m)=>a+m.monto,0);
-  return total/n;
+  const info = calcInfoTarjetaEnPeriodo(tar);
+  if(!info || info.standby) return 0;
+  return info.pagoQuincenaMio;
 }
 
 function calcTotalMov(){
@@ -2776,20 +2865,27 @@ function limpiarExtras(){
 }
 
 // MOVIMIENTOS
-// Abre el modal de movimiento con la fecha precargada al rango del ciclo visible
+// Abre el modal de movimiento con la tarjeta y "es mío" en blanco para forzar al usuario
+// a elegir conscientemente. La fecha se ajustará al rango cuando elija la tarjeta.
 window.abrirAgregarMov = function(){
   if(!S.tarjetas.length){ alert('Primero agrega una tarjeta de crédito'); return; }
-  // Determinar tarjeta: la filtrada en TDC, o la primera
-  let tarNombre = (typeof tdcFiltro !== 'undefined' && tdcFiltro && tdcFiltro !== 'todas') ? tdcFiltro : S.tarjetas[0].nombre;
-  // Esperar a que el modal abra para luego setear valores
+  // Construir las opciones del select de tarjeta con un placeholder vacío
+  const sel = document.getElementById('mov-tar');
+  if(sel){
+    sel.innerHTML = '<option value="" disabled selected>Selecciona una tarjeta...</option>'
+      + S.tarjetas.map(t => `<option value="${t.nombre}">${t.nombre}</option>`).join('');
+  }
   openModal('m-mov');
   setTimeout(()=>{
-    const sel = document.getElementById('mov-tar');
-    if(sel) sel.value = tarNombre;
-    actualizarRangoMov(); // setea fecha y muestra info
-    // Limpiar concepto y monto por si quedaron de antes
+    // Limpiar todos los campos
     if(id('mov-c')) id('mov-c').value = '';
     if(id('mov-m')) id('mov-m').value = '';
+    if(id('mov-f')) id('mov-f').value = '';
+    const incSel = document.getElementById('mov-inc');
+    if(incSel) incSel.value = '';
+    // Ocultar info box hasta que elija tarjeta
+    const infoBox = document.getElementById('mov-rango-info');
+    if(infoBox) infoBox.style.display = 'none';
   }, 50);
 };
 
@@ -2833,11 +2929,18 @@ window.actualizarRangoMov = function(){
 
 function guardarMov(){
   const tar=id('mov-tar').value, c=id('mov-c').value.trim(), m=parseFloat(id('mov-m').value)||0, f=id('mov-f').value, inc=id('mov-inc').value;
+  if(!tar){alert('Selecciona una tarjeta');return;}
   if(!c||!m){alert('Concepto y monto son requeridos');return;}
   if(!f){alert('La fecha es requerida');return;}
+  if(!inc){alert('Indica si el movimiento es tuyo o no');return;}
   // Validar que la fecha caiga dentro del ciclo visible de la tarjeta
   const tarObj = S.tarjetas.find(t => t.nombre === tar);
   if(tarObj){
+    // No permitir agregar movs si la tarjeta está en stand-by
+    if(tarjetaEnStandby(tarObj)){
+      alert(`⚠️ ${tar} está esperando al siguiente corte.\n\nNo puedes agregar movimientos en este periodo. Espera a que llegue la fecha de corte.`);
+      return;
+    }
     const cv = (typeof cicloVisibleEnPeriodo === 'function') ? cicloVisibleEnPeriodo(tarObj) : cicloVisibleTarjeta(tarObj);
     if(cv){
       const fMov = new Date(f+'T12:00:00'); fMov.setHours(0,0,0,0);
@@ -2945,6 +3048,36 @@ function actualizarPlazoCalculadoMsi(){
 }
 
 // Toggle del ajuste manual de plazo
+// Abre el modal de MSI con tarjeta y "es mío" en blanco
+window.abrirAgregarMsi = function(){
+  if(!S.tarjetas.length){ alert('Primero agrega una tarjeta'); return; }
+  const sel = document.getElementById('msi-tar');
+  if(sel){
+    sel.innerHTML = '<option value="" disabled selected>Selecciona una tarjeta...</option>'
+      + S.tarjetas.map(t => `<option value="${t.nombre}">${t.nombre}</option>`).join('');
+  }
+  openModal('m-msi');
+  setTimeout(()=>{
+    if(id('msi-c')) id('msi-c').value = '';
+    if(id('msi-m')) id('msi-m').value = '';
+    if(id('msi-pl')) id('msi-pl').value = '';
+    if(id('msi-f')) id('msi-f').value = '';
+    const incSel = document.getElementById('msi-inc');
+    if(incSel) incSel.value = '';
+    const ajusteChk = document.getElementById('msi-ajuste-chk');
+    if(ajusteChk) ajusteChk.checked = false;
+    const ajusteWrap = document.getElementById('msi-ajuste-wrap');
+    if(ajusteWrap) ajusteWrap.style.display = 'none';
+    const plazoInfo = document.getElementById('msi-plazo-info');
+    if(plazoInfo) plazoInfo.style.display = 'none';
+    const pagoInfo = document.getElementById('msi-pago-info');
+    if(pagoInfo){
+      pagoInfo.className = 'ibox';
+      pagoInfo.textContent = 'Ingresa pago mensual y plazo para ver el costo total.';
+    }
+  }, 50);
+};
+
 function toggleAjusteMsi(){
   const chk = document.getElementById('msi-ajuste-chk');
   const wrap = document.getElementById('msi-ajuste-wrap');
@@ -2958,8 +3091,10 @@ function guardarMsi(){
   const pl=parseInt(id('msi-pl').value)||0;
   const inc=id('msi-inc').value;
   const fechaCompra=id('msi-f').value;
+  if(!tar){alert('Selecciona una tarjeta');return;}
   if(!c||!pagoMes||!pl){alert('Concepto, pago mensual y plazo son requeridos');return;}
   if(!fechaCompra){alert('La fecha de compra es requerida');return;}
+  if(!inc){alert('Indica si el MSI es tuyo o no');return;}
   const hoy=new Date(); hoy.setHours(0,0,0,0);
   const fComp=new Date(fechaCompra+'T12:00:00'); fComp.setHours(0,0,0,0);
   if(fComp>hoy){alert('No puedes agregar una fecha de compra futura');return;}
@@ -3790,38 +3925,35 @@ window.renderTDC = function(){
     if(id('tdc-filtro-tabs')) id('tdc-filtro-tabs').innerHTML='';
   } else {
     cardsEl.innerHTML = S.tarjetas.map((t,i)=>{
-      const cicloAct = cicloActualTarjeta(t);
-      const cicloVis = cicloVisibleEnPeriodo(t);  // ← ahora respeta las 3 condiciones
+      const cicloAct = cicloActualTarjeta(t); // ciclo activo desde HOY (para label superior)
+      const cicloVis = cicloVisibleEnPeriodo(t); // ciclo visible respetando 3 condiciones
       const limpiar = debenLimpiarse(t);
+      const standby = tarjetaEnStandby(t);
+      // El label "Corte X · Pago Y" siempre muestra el ciclo activo de HOY (en tiempo real, no del periodo navegado)
       const fmtCorteAct = cicloAct.corteIni.toLocaleDateString('es-MX',{day:'2-digit',month:'short'});
       const fmtLimAct = cicloAct.limite.toLocaleDateString('es-MX',{day:'2-digit',month:'short'});
       const diasPago = Math.max(0,Math.round((cicloAct.limite-hoy)/(1000*60*60*24)));
       const nCobros = Math.max(1, contarDiasCobro(cicloAct.limiteStr));
-      // Movimientos del ciclo visible (la función movPerteneceAlCicloVisible ya respeta las 3 condiciones)
-      const movsTar = S.movimientos.filter(m=>m.tarjeta===t.nombre && movPerteneceAlCicloVisible(t,m.fecha));
+      // Movimientos del ciclo visible
+      const movsTar = standby ? [] : S.movimientos.filter(m=>m.tarjeta===t.nombre && movPerteneceAlCicloVisible(t,m.fecha));
       const totalMovTodo = movsTar.reduce((a,m)=>a+m.monto,0);
       const totalMovMio = movsTar.filter(m=>m.incluir==='SI').reduce((a,m)=>a+m.monto,0);
       // MSI de esta tarjeta (todos, en tiempo real)
       const msisTar = S.msis.filter(m=>m.tarjeta===t.nombre);
-      const totalMsiTodo = msisTar.reduce((a,m)=>a+(m.monto/m.plazo/nCobros),0);
-      const totalMsiMio = msisTar.filter(m=>m.incluir==='SI').reduce((a,m)=>a+(m.monto/m.plazo/nCobros),0);
-      // Totales
-      // "Total tarjeta" = suma de TODAS las compras del ciclo (sin dividir entre cobros)
-      // "Solo lo mío" = suma de las compras incluidas (mías) sin dividir
-      // (La división por cobros se aplica solo en el dashboard para calcular el descuento por periodo)
-      const totalTarjeta = totalMovTodo + totalMsiTodo*nCobros; // MSI ya viene dividido, lo "deshacemos" para mostrar bruto
-      // En realidad MSI total bruto = sum(monto/plazo) — el monto del MSI por mes
-      // Más simple: recalcular MSI bruto sin dividir entre cobros
       const totalMsiBrutoMes = msisTar.reduce((a,m)=>a+(m.monto/m.plazo),0);
       const totalMsiMioBrutoMes = msisTar.filter(m=>m.incluir==='SI').reduce((a,m)=>a+(m.monto/m.plazo),0);
       const totalTarjetaBruto = totalMovTodo + totalMsiBrutoMes;
       const totalMioBruto = totalMovMio + totalMsiMioBrutoMes;
-      return `<div class="tdc-card ${t.color||'tdc-b'}">
+      // Si está en stand-by mostrar leyenda en lugar de "Movs: X → Y"
+      const detLine = standby
+        ? `🌙 Tarjeta pagada · Próximo corte: ${cicloAct.corteIni.toLocaleDateString('es-MX',{day:'numeric',month:'long'})}`
+        : `${diasPago} días · ${nCobros} ${S.modo==='QUINCENAL'?'quincena':'semana'}${nCobros===1?'':'s'} · Movs: ${cicloVis.cicloLabel}${limpiar?' · Nuevo ciclo':''}`;
+      return `<div class="tdc-card ${t.color||'tdc-b'}" ${standby?'style="opacity:.85"':''}>
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2px">
           <div class="tdc-name">${t.nombre}</div>
           <div class="tdc-tag">Corte ${fmtCorteAct} · Pago ${fmtLimAct}</div>
         </div>
-        <div class="tdc-det">${diasPago} días · ${nCobros} ${S.modo==='QUINCENAL'?'quincena':'semana'}${nCobros===1?'':'s'} · Movs: ${cicloVis.cicloLabel}${limpiar?' · Nuevo ciclo':''}</div>
+        <div class="tdc-det">${detLine}</div>
         <div class="tdc-amts">
           <div class="tdc-bl"><div class="tdc-bll">Total tarjeta</div><div class="tdc-blv">${mxn(totalTarjetaBruto)}</div></div>
           <div class="tdc-bl"><div class="tdc-bll">Solo lo mío</div><div class="tdc-blv">${mxn(totalMioBruto)}</div></div>
@@ -3846,18 +3978,31 @@ window.renderTDC = function(){
     }
   }
 
-  // Label del corte visible (se muestra el corte que corresponde al periodo navegado)
+  // Label del corte visible: SOLO se muestra cuando hay una tarjeta específica filtrada
+  // (en vista "Todas" no tiene sentido porque cada tarjeta tiene su propio corte)
   const lblEl = id('mov-corte-lbl');
   if(lblEl){
-    const tarFiltro = tdcFiltro && tdcFiltro!=='todas' ? S.tarjetas.find(t=>t.nombre===tdcFiltro) : (S.tarjetas[0]||null);
-    if(tarFiltro){
-      const cv = cicloVisibleEnPeriodo(tarFiltro);
-      const fIni = cv.corteIni.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
-      const fFin = cv.corteFin.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
-      const fLim = cv.limite.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
-      const tarLabel = tdcFiltro && tdcFiltro!=='todas' ? '' : ` · ${tarFiltro.nombre}`;
-      lblEl.innerHTML = `Corte: <strong style="color:var(--text)">${fIni} – ${fFin}</strong> · Límite de pago: <strong style="color:var(--amber)">${fLim}</strong>${tarLabel}`;
+    if(tdcFiltro && tdcFiltro !== 'todas'){
+      const tarFiltro = S.tarjetas.find(t => t.nombre === tdcFiltro);
+      if(tarFiltro){
+        const standby = tarjetaEnStandby(tarFiltro);
+        if(standby){
+          // Si está en stand-by, no mostrar corte sino próximo corte estimado
+          const cicloProx = cicloActualTarjeta(tarFiltro);
+          const fProxCorte = cicloProx.corteIni.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
+          lblEl.innerHTML = `🌙 Próximo corte: <strong style="color:var(--purple)">${fProxCorte}</strong> · ${tarFiltro.nombre}`;
+        } else {
+          const cv = cicloVisibleEnPeriodo(tarFiltro);
+          const fIni = cv.corteIni.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
+          const fFin = cv.corteFin.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
+          const fLim = cv.limite.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
+          lblEl.innerHTML = `Corte: <strong style="color:var(--text)">${fIni} – ${fFin}</strong> · Límite de pago: <strong style="color:var(--amber)">${fLim}</strong> · ${tarFiltro.nombre}`;
+        }
+      } else {
+        lblEl.innerHTML = '';
+      }
     } else {
+      // Vista "Todas": no mostrar corte específico
       lblEl.innerHTML = '';
     }
   }
@@ -3866,29 +4011,130 @@ window.renderTDC = function(){
   id('mov-tar').innerHTML=opts||'<option>Sin tarjetas</option>';
   id('msi-tar').innerHTML=opts||'<option>Sin tarjetas</option>';
 
-  // Movimientos: mostrar del ciclo visible (la función ya respeta las 3 condiciones)
+  // ═══════════════════════════════════════════════════════════════
+  // SECCIÓN MOVIMIENTOS — render con stand-by y totales
+  // ═══════════════════════════════════════════════════════════════
   const esGlobal = tdcFiltro==='todas';
+
+  // Filtrar movimientos visibles del ciclo, excluyendo tarjetas en stand-by
   const movVisibles = S.movimientos.filter(m=>{
     const tar=S.tarjetas.find(t=>t.nombre===m.tarjeta);
     if(!tar) return false;
+    if(tarjetaEnStandby(tar)) return false; // ocultar movs de tarjetas en stand-by
     return movPerteneceAlCicloVisible(tar, m.fecha);
   });
   const movF = esGlobal ? movVisibles : movVisibles.filter(m=>m.tarjeta===tdcFiltro);
   const movEl=id('mov-list');
 
-  // Botones: bloqueados en vista global
-  const addMovBtn = document.querySelector('[onclick*="m-mov"]');
-  const limpiarBtn = document.querySelector('[onclick*="limpiarMov"]');
-  if(addMovBtn) addMovBtn.disabled = esGlobal;
-  if(limpiarBtn) limpiarBtn.disabled = esGlobal;
+  // Determinar si la tarjeta filtrada está en stand-by
+  const tarFiltroObj = (!esGlobal) ? S.tarjetas.find(t=>t.nombre===tdcFiltro) : null;
+  const filtroEnStandby = tarFiltroObj ? tarjetaEnStandby(tarFiltroObj) : false;
 
-  if(!movF.length){
-    movEl.innerHTML=`<div class="empty"><div class="empty-icon">—</div>${esGlobal?'Selecciona una tarjeta para agregar movimientos':'Sin movimientos para '+tdcFiltro}</div>`;
+  // Botones:
+  // - +mov: SIEMPRE habilitado (en el modal se elige la tarjeta)
+  // - Limpiar: SOLO visible cuando hay tarjeta filtrada Y NO está en stand-by
+  const addMovBtn = document.querySelector('[onclick*="abrirAgregarMov"]');
+  const limpiarBtn = document.querySelector('[onclick*="limpiarMov"]');
+  if(addMovBtn){
+    addMovBtn.disabled = false;
+    addMovBtn.style.display = '';
+  }
+  if(limpiarBtn){
+    if(esGlobal || filtroEnStandby){
+      limpiarBtn.style.display = 'none';
+    } else {
+      limpiarBtn.style.display = '';
+      limpiarBtn.disabled = false;
+    }
+  }
+
+  // ─── Caja de totales ───
+  const totalesBox = id('mov-totales-box');
+  if(totalesBox){
+    if(esGlobal){
+      // Vista TODAS: gran total mío + no mío + total general (sin desglose por tarjeta)
+      let granTotalMio = 0, granTotalNoMio = 0;
+      S.tarjetas.forEach(t => {
+        const info = calcInfoTarjetaEnPeriodo(t);
+        if(!info || info.standby) return; // tarjetas en stand-by no suman
+        granTotalMio += info.totalMio;
+        granTotalNoMio += info.totalNoMio;
+      });
+      const granTotal = granTotalMio + granTotalNoMio;
+      if(granTotal === 0){
+        totalesBox.innerHTML = '';
+      } else {
+        totalesBox.innerHTML = `
+          <div style="background:rgba(167,139,250,.06);border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:12px;color:var(--text2)">Total mío</span>
+              <strong style="font-family:var(--mono);color:var(--teal)">${mxn(granTotalMio)}</strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:12px;color:var(--text2)">Total no mío</span>
+              <strong style="font-family:var(--mono);color:var(--text2)">${mxn(granTotalNoMio)}</strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:6px;margin-top:2px">
+              <span style="font-size:13px;font-weight:700">TOTAL</span>
+              <strong style="font-family:var(--mono);color:var(--purple);font-size:15px">${mxn(granTotal)}</strong>
+            </div>
+          </div>`;
+      }
+    } else if(filtroEnStandby){
+      // Tarjeta filtrada en stand-by: leyenda
+      const cicloProx = cicloActualTarjeta(tarFiltroObj);
+      const fProxCorte = cicloProx.corteIni.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
+      totalesBox.innerHTML = `
+        <div style="background:rgba(167,139,250,.08);border:1px dashed var(--purple);border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:24px;margin-bottom:6px">🌙</div>
+          <div style="font-size:13px;font-weight:700;color:var(--purple);margin-bottom:4px">Tarjeta pagada</div>
+          <div style="font-size:11px;color:var(--text2)">Esperando al siguiente corte: <strong style="color:var(--text)">${fProxCorte}</strong></div>
+        </div>`;
+    } else {
+      // Filtro de tarjeta normal: total mío + no mío con quincena/quincenas y límite
+      const info = tarFiltroObj ? calcInfoTarjetaEnPeriodo(tarFiltroObj) : null;
+      if(info){
+        const lblQ = `Q${info.quincenaActual}/${info.nTotal}`;
+        const fLim = info.cv.limite.toLocaleDateString('es-MX',{day:'numeric',month:'long'});
+        const totalGen = info.totalMio + info.totalNoMio;
+        totalesBox.innerHTML = `
+          <div style="background:rgba(79,142,247,.06);border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+              <div>
+                <div style="font-size:12px;color:var(--text2)">Total mío</div>
+                <div style="font-size:10px;color:var(--text3)">${lblQ} · -${mxn(info.pagoQuincenaMio)} / quincena · Límite ${fLim}</div>
+              </div>
+              <strong style="font-family:var(--mono);color:var(--teal)">${mxn(info.totalMio)}</strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+              <div>
+                <div style="font-size:12px;color:var(--text2)">Total no mío</div>
+                <div style="font-size:10px;color:var(--text3)">${lblQ} · -${mxn(info.pagoQuincenaNoMio)} / quincena · Límite ${fLim}</div>
+              </div>
+              <strong style="font-family:var(--mono);color:var(--text2)">${mxn(info.totalNoMio)}</strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:6px;margin-top:2px">
+              <span style="font-size:13px;font-weight:700">TOTAL</span>
+              <strong style="font-family:var(--mono);color:var(--purple);font-size:15px">${mxn(totalGen)}</strong>
+            </div>
+          </div>`;
+      } else {
+        totalesBox.innerHTML = '';
+      }
+    }
+  }
+
+  // ─── Lista de movimientos ───
+  if(filtroEnStandby){
+    // Tarjeta en stand-by: no mostrar movs en la lista (la leyenda ya está en totalesBox)
+    movEl.innerHTML = '';
+  } else if(!movF.length){
+    movEl.innerHTML=`<div class="empty"><div class="empty-icon">—</div>${esGlobal?'Sin movimientos en este periodo':'Sin movimientos para '+tdcFiltro}</div>`;
   } else {
     movEl.innerHTML=movF.map(m=>{
       const i=S.movimientos.indexOf(m);
       return `<div class="chi">
-        <div class="chk ${m.incluir==='SI'?'on':'off'}" onclick="toggleMov(${i})" style="cursor:${esGlobal?'default':'pointer'}">${m.incluir==='SI'?'✓':'✕'}</div>
+        <div class="chk ${m.incluir==='SI'?'on':'off'}" onclick="toggleMov(${i})" style="cursor:pointer">${m.incluir==='SI'?'✓':'✕'}</div>
         <div class="ch-info">
           <div class="ch-name ${m.incluir==='NO'?'x':''}">${m.concepto}</div>
           <div class="ch-sub">${m.fecha||''} · ${m.tarjeta}</div>
@@ -4049,19 +4295,79 @@ window.renderAll = function(){
 // ═══════════════════════════════════════════════════════
 // RENDER MSI — sección independiente, en tiempo real
 // ═══════════════════════════════════════════════════════
+// Filtro de tarjeta para sección MSI
+let msiFiltro = 'todas';
+window.setMsiFiltro = function(v){
+  msiFiltro = v;
+  window.renderMsi();
+};
+
 window.renderMsi = function(){
   const list = id('msi-section-list');
   if(!list) return;
   const hoy = new Date(); hoy.setHours(0,0,0,0);
   const p = PERIODOS[S.periodoIdx];
 
-  if(!S.msis.length){
-    list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin MSI registrados — agrega el primero</div>';
+  // ─── Filtro por tarjeta ───
+  const filtroTabs = id('msi-filtro-tabs');
+  if(filtroTabs){
+    if(S.tarjetas.length === 0){
+      filtroTabs.innerHTML = '';
+    } else {
+      const tabs = [{n:'Todas',v:'todas'}, ...S.tarjetas.map(t=>({n:t.nombre,v:t.nombre}))];
+      filtroTabs.innerHTML = tabs.map(t => `
+        <button onclick="setMsiFiltro('${t.v}')" style="
+          padding:5px 12px;border-radius:20px;cursor:pointer;
+          border:1px solid ${msiFiltro===t.v?'var(--purple)':'var(--border)'};
+          background:${msiFiltro===t.v?'rgba(167,139,250,.15)':'transparent'};
+          color:${msiFiltro===t.v?'var(--purple)':'var(--text2)'};
+          font-family:var(--font);font-size:11px;font-weight:600;white-space:nowrap;
+        ">${t.n}</button>`).join('');
+    }
+  }
+
+  // ─── Caja informativa de totales ───
+  const totalesBox = id('msi-totales-box');
+  if(totalesBox){
+    let totalMio = 0, totalNoMio = 0;
+    S.msis.forEach(m => {
+      if(msiFiltro !== 'todas' && m.tarjeta !== msiFiltro) return;
+      const tar = S.tarjetas.find(t => t.nombre === m.tarjeta);
+      if(!tar) return;
+      const calc = calcMsiEnPeriodo(m, tar);
+      if(!calc) return; // liquidado
+      if(m.incluir === 'SI'){
+        totalMio += calc.pagoQuincena;
+      } else {
+        totalNoMio += calc.pagoQuincena;
+      }
+    });
+    const totalGen = totalMio + totalNoMio;
+    if(totalGen === 0){
+      totalesBox.innerHTML = '';
+    } else {
+      const filtroLbl = msiFiltro === 'todas' ? 'Todas las tarjetas' : msiFiltro;
+      totalesBox.innerHTML = `
+        <div style="background:rgba(167,139,250,.06);border:1px solid var(--border);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:4px;font-size:12px">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:2px">Resumen por quincena · ${filtroLbl}</div>
+          <div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Total mío</span><strong style="font-family:var(--mono);color:var(--teal)">${mxn(totalMio)}</strong></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Total no mío</span><strong style="font-family:var(--mono);color:var(--text2)">${mxn(totalNoMio)}</strong></div>
+          ${msiFiltro==='todas' ? `<div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:4px;margin-top:2px"><span style="font-weight:700">TOTAL</span><strong style="font-family:var(--mono);color:var(--purple)">${mxn(totalGen)}</strong></div>` : ''}
+        </div>`;
+    }
+  }
+
+  // Filtrar MSI según el filtro de tarjeta
+  const msiF = msiFiltro === 'todas' ? S.msis : S.msis.filter(m => m.tarjeta === msiFiltro);
+
+  if(!msiF.length){
+    list.innerHTML='<div class="empty"><div class="empty-icon">—</div>'+(S.msis.length===0?'Sin MSI registrados — agrega el primero':'Sin MSI para '+msiFiltro)+'</div>';
     if(id('tot-msi-section')) id('tot-msi-section').textContent='$0.00';
     return;
   }
 
-  list.innerHTML = S.msis.map((m,i)=>{
+  list.innerHTML = msiF.map(m=>{
+    const i = S.msis.indexOf(m);
     const tar = S.tarjetas.find(t=>t.nombre===m.tarjeta);
     const excl = m.incluir==='NO';
 

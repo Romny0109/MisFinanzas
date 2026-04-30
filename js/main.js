@@ -372,10 +372,20 @@ function calcPeriodosDesdeHoy(){
   // Generar suficientes: actual + 4 base + extra + margen
   const totalNecesarios = 4 + periodosExtra + 5;
 
+  // Cuántos periodos PASADOS necesitamos generar (para poder ver snapshots viejos)
+  const pasadosNecesarios = Math.max(
+    0,
+    (S.historial && S.historial.length) ? S.historial.length + 2 : 0
+  );
+
   if(S.modo === 'QUINCENAL'){
     let y = hoy.getFullYear(), m = hoy.getMonth();
     let half = hoy.getDate() <= 15 ? 1 : 2;
-    for(let i=0; i<totalNecesarios; i++){
+    // Retroceder pasadosNecesarios quincenas para arrancar atrás
+    for(let i=0; i<pasadosNecesarios; i++){
+      half--; if(half<1){ half=2; m--; if(m<0){m=11;y--;} }
+    }
+    for(let i=0; i<totalNecesarios + pasadosNecesarios; i++){
       const last = new Date(y, m+1, 0).getDate();
       let ini, fin, lbl;
       if(half===1){
@@ -390,7 +400,6 @@ function calcPeriodosDesdeHoy(){
     }
   } else {
     // SEMANAL: el día configurado (día de cobro) es el ÚLTIMO día del periodo
-    // Ej: si cobras miércoles → periodo va de jueves a miércoles
     const diasSem=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
     const diaIdx = diasSem.indexOf(S.diaSem||'Viernes');
     // Encontrar el PRÓXIMO día de cobro (hoy o adelante) = fin del periodo actual
@@ -400,7 +409,9 @@ function calcPeriodosDesdeHoy(){
     finActual.setDate(finActual.getDate() + diff);
     // ini del periodo actual = fin - 6
     let iniActual = new Date(finActual); iniActual.setDate(finActual.getDate() - 6);
-    for(let i=0; i<totalNecesarios; i++){
+    // Retroceder pasadosNecesarios semanas
+    iniActual.setDate(iniActual.getDate() - 7*pasadosNecesarios);
+    for(let i=0; i<totalNecesarios + pasadosNecesarios; i++){
       const ini = new Date(iniActual); ini.setDate(iniActual.getDate() + i*7);
       const fin = new Date(ini); fin.setDate(ini.getDate()+6);
       const lbl = `${ini.getDate()} ${MESES[ini.getMonth()]} — ${fin.getDate()} ${MESES[fin.getMonth()]} ${fin.getFullYear()}`;
@@ -627,7 +638,9 @@ function renderPeriodoNav(){
   const banner = id('close-banner');
   if(banner){
     const esActual = S.periodoIdx === actualIdx;
-    if(esActual && !S.periodoCerrado && hoy >= p.ini){
+    // El periodo está "guardado" si hay un snapshot en historial con su label
+    const yaGuardado = S.historial && S.historial.some(h => h.periodo === p.lbl);
+    if(esActual && !S.periodoCerrado && !yaGuardado && hoy >= p.ini){
       banner.classList.add('show');
       const dias = Math.round((p.fin-hoy)/(1000*60*60*24));
       const titleEl = id('close-title');
@@ -710,11 +723,17 @@ function getSnapshotActual(){
 function cerrarPeriodo(){
   if(S.periodoCerrado) return;
   const p = PERIODOS[S.periodoIdx];
+  if(!p) return;
+
+  // Confirmación clara antes de guardar
+  if(!confirm('¿Estás seguro? Una vez guardado, ya no podrás modificar este periodo.')) return;
+
   if(S.historial.some(h=>h.periodo===p.lbl)) {
-    if(S.periodoIdx < PERIODOS.length-1){
-      S.periodoIdx++; S.periodoCerrado=false;
-      S.extras=[]; S.movimientos=[];
-    }
+    // Si ya estaba guardado, solo avanzar al periodo actual (el que contiene HOY)
+    const idxHoy = (typeof calcPeriodoActualIdx === 'function') ? calcPeriodoActualIdx() : Math.min(S.periodoIdx+1, PERIODOS.length-1);
+    S.periodoIdx = idxHoy;
+    S.periodoCerrado = false;
+    S.extras=[]; S.movimientos=[];
     save(); renderAll(); return;
   }
   const snap = crearSnapshot(false);
@@ -739,12 +758,19 @@ function cerrarPeriodo(){
     return {...d, pagoActual:nuevo, pagosRestantes:restantes, saldoPendiente:saldoNuevo};
   });
 
-  if(S.periodoIdx < PERIODOS.length-1){
+  // Avanzar al periodo que contiene HOY (no necesariamente +1, podría haberse guardado un periodo viejo)
+  const idxHoy = (typeof calcPeriodoActualIdx === 'function') ? calcPeriodoActualIdx() : -1;
+  if(idxHoy >= 0){
+    S.periodoIdx = idxHoy;
+  } else if(S.periodoIdx < PERIODOS.length-1){
     S.periodoIdx++;
-    S.periodoCerrado = false;
-    S.extras=[]; S.movimientos=[];
   }
-  save(); renderAll();
+  S.periodoCerrado = false;
+  S.extras=[]; S.movimientos=[];
+  save();
+  // Mensaje de éxito
+  setTimeout(()=>alert('✅ Periodo guardado correctamente'), 100);
+  renderAll();
 }
 
 function editarAntesCerrar(){

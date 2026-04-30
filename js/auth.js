@@ -144,7 +144,7 @@ async function cargarDatosUsuario(){
       S.extras = []; S.movimientos = [];
     }
   }
-  S.periodoIdx = 0;
+  S.periodoIdx = (typeof calcPeriodoActualIdx === 'function') ? calcPeriodoActualIdx() : 0;
   S.ultimoPeriodoLabel = periodoActualLabel;
   localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
   window.renderAll();

@@ -63,6 +63,7 @@ body.theme-claro .sb-tab.on{background:var(--sb-active)!important;color:var(--te
 body.theme-claro .pnav-btn{background:var(--bg3)!important;border-color:var(--border)!important;color:var(--text)!important}
 body.theme-claro .pnav-label{background:var(--bg3)!important;border-color:var(--border)!important;color:var(--text)!important}
 body.theme-claro .pnav-label.pnav-activo{background:var(--green)!important;border-color:var(--green)!important;color:#fff!important}
+body.theme-claro .pnav-label.pnav-pasado{background:#fef3c7!important;color:#92400e!important;border-color:#fbbf24!important}
 body.theme-claro .disp{background:linear-gradient(160deg,var(--disp-g1),var(--disp-g2))!important;border-color:var(--disp-border)!important}
 body.theme-claro .disp-l{color:var(--text2)!important}
 body.theme-claro .disp-a{color:var(--text)!important}
@@ -90,6 +91,7 @@ body.theme-oscuro .sb-tab.on{background:var(--sb-active)!important;color:#EDEDED
 body.theme-oscuro .pnav-btn{background:var(--bg3)!important;border-color:var(--border)!important}
 body.theme-oscuro .pnav-label{background:var(--bg3)!important;border-color:var(--border)!important}
 body.theme-oscuro .pnav-label.pnav-activo{background:var(--green)!important;border-color:var(--green)!important;color:#fff!important}
+body.theme-oscuro .pnav-label.pnav-pasado{background:#451a03!important;color:#fbbf24!important;border-color:#92400e!important}
 body.theme-oscuro .disp{background:linear-gradient(160deg,var(--disp-g1),var(--disp-g2))!important;border-color:var(--disp-border)!important}
 body.theme-oscuro .desktop-topbar{border-bottom-color:var(--border)!important}
 body.theme-oscuro .dt-title{color:#EDEDED!important}
@@ -419,6 +421,8 @@ html.force-mobile .pnav.mobile-only{display:flex!important}
 .pnav-btn:disabled{opacity:.3;cursor:not-allowed}
 .pnav-label{flex:1;text-align:center;font-size:13px;font-weight:600;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);padding:7px 8px}
 .pnav-label.pnav-activo{background:var(--green);color:#fff;border-color:var(--green)}
+.pnav-label.pnav-pasado{background:#fef3c7;color:#92400e;border-color:#fbbf24}
+body.theme-oscuro .pnav-label.pnav-pasado{background:#451a03;color:#fbbf24;border-color:#92400e}
 
 /* Font size scaling */
 .font-sz-btn{width:36px;height:36px;border-radius:var(--rs);border:1px solid var(--border);background:var(--bg3);color:var(--text);font-family:var(--font);font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center}

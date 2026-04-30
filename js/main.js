@@ -531,8 +531,11 @@ function openModal(mid){
   el.classList.add('open');
   // Si es onboarding, marcamos como bloqueado (no se cierra al picar fuera)
   if(mid === 'm-onboard') el.setAttribute('data-blocked','1');
+  // Precargar fecha al rango del periodo navegado (no HOY si estás navegando un pasado)
   const fi = document.querySelector(`#${mid} input[type=date]`);
-  if(fi && !fi.value) fi.value = todayStr();
+  if(fi && !fi.value){
+    fi.value = (typeof fechaDefaultPeriodo === 'function') ? fechaDefaultPeriodo() : todayStr();
+  }
 }
 function closeModal(mid){
   const el = document.getElementById(mid);
@@ -628,9 +631,11 @@ function renderPeriodoNav(){
 
   // Sync ALL periodo labels across all sections
   const esActual = S.periodoIdx === actualIdx;
+  const esPasado = S.periodoIdx < actualIdx;
   document.querySelectorAll('[id^=pnav-lbl]').forEach(el=>{
     el.textContent=lbl;
     el.classList.toggle('pnav-activo', esActual);
+    el.classList.toggle('pnav-pasado', esPasado);
   });
 
   // Sync ALL prev/next buttons
@@ -850,6 +855,20 @@ function isPeriodoPasado(){
   return S.periodoIdx < actualIdx;
 }
 window.isPeriodoPasado = isPeriodoPasado;
+
+// Helper: devuelve una fecha string que cae DENTRO del periodo navegado.
+// Si el periodo contiene HOY → usa HOY.
+// Si es pasado/futuro → usa el inicio del periodo.
+function fechaDefaultPeriodo(){
+  const p = PERIODOS[S.periodoIdx];
+  if(!p) return todayStr();
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const pIni = new Date(p.ini); pIni.setHours(0,0,0,0);
+  const pFin = new Date(p.fin); pFin.setHours(0,0,0,0);
+  if(hoy >= pIni && hoy <= pFin) return todayStr();
+  return _isoStr(pIni);
+}
+window.fechaDefaultPeriodo = fechaDefaultPeriodo;
 
 // Desbloquea un periodo guardado borrando su snapshot.
 // Útil cuando se quiere editar/agregar datos olvidados; después se vuelve a guardar.

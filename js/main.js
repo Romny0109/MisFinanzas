@@ -22,7 +22,8 @@ const DEF = {
   servicios:[], extras:[], tarjetas:[], movimientos:[], msis:[], deudas:[],
   otrosGastos:[],
   fontSize:0,
-  historial:[], periodoCerrado:false
+  historial:[], periodoCerrado:false,
+  fechaInicioUso: null  // Fecha en que el usuario empezó a usar la app (no se generan periodos antes)
 };
 let S = {...DEF}; // Se carga desde Supabase en init()
 let periodosExtra = 0; // Periodos extra agregados manualmente
@@ -85,6 +86,8 @@ async function loadFromSupabase(silencioso=false){
         if(!S.ahoMonto || S.ahoMonto === 0) S.ahoMonto = baseCalc;
       }
       S.periodoCerrado = c.periodo_cerrado || false;
+      // Fecha de inicio de uso del usuario (para no generar periodos antes de esta fecha)
+      S.fechaInicioUso = c.fecha_inicio_uso || null;
       if(c.tema) S.tema = c.tema;
       if(c.zona_horaria) S.zonaHoraria = c.zona_horaria;
       if(c.secciones) try { S.secciones = JSON.parse(c.secciones); } catch(e){}
@@ -204,12 +207,17 @@ async function loadFromSupabase(silencioso=false){
 async function saveConfigDB(){
   if(!UID) return;
   try {
+    // Auto-establecer fecha_inicio_uso si no existe (primera vez que se guarda config)
+    if(!S.fechaInicioUso){
+      S.fechaInicioUso = todayStr();
+    }
     const payload = {
       user_id: UID, modo: S.modo, dia_sem: S.diaSem,
       sueldo: S.sueldo, sueldo_fijo: S.sueldoFijo,
       aho_modo: S.ahoModo, aho_pct: S.ahoPct,
       aho_fijo: S.ahoFijo, aho_monto: S.ahoMonto,
       periodo_cerrado: S.periodoCerrado,
+      fecha_inicio_uso: S.fechaInicioUso,
       tema: S.tema || 'clasico',
       secciones: JSON.stringify(S.secciones || {}),
       zona_horaria: S.zonaHoraria || '',
@@ -376,20 +384,30 @@ function calcPeriodosDesdeHoy(){
   // Generar suficientes: actual + 4 base + extra + margen
   const totalNecesarios = 4 + periodosExtra + 5;
 
-  // Cuántos periodos PASADOS necesitamos generar (para poder ver snapshots viejos)
-  const pasadosNecesarios = Math.max(
-    0,
-    (S.historial && S.historial.length) ? S.historial.length + 2 : 0
-  );
+  // FECHA DE INICIO DE USO: nunca generamos periodos antes de esta fecha.
+  // Si no está definida, usamos hoy (no hay periodos pasados).
+  let fechaInicio = null;
+  if(S.fechaInicioUso){
+    fechaInicio = new Date(S.fechaInicioUso+'T12:00:00');
+    fechaInicio.setHours(0,0,0,0);
+  } else {
+    fechaInicio = new Date(hoy);
+  }
 
   if(S.modo === 'QUINCENAL'){
     let y = hoy.getFullYear(), m = hoy.getMonth();
     let half = hoy.getDate() <= 15 ? 1 : 2;
-    // Retroceder pasadosNecesarios quincenas para arrancar atrás
-    for(let i=0; i<pasadosNecesarios; i++){
-      half--; if(half<1){ half=2; m--; if(m<0){m=11;y--;} }
+    // Retroceder pero NUNCA antes de fechaInicio
+    const maxRetro = 24; // máximo 24 quincenas atrás (1 año)
+    for(let i=0; i<maxRetro; i++){
+      let prevHalf = half - 1, prevM = m, prevY = y;
+      if(prevHalf < 1){ prevHalf = 2; prevM--; if(prevM < 0){ prevM = 11; prevY--; } }
+      const last = new Date(prevY, prevM+1, 0).getDate();
+      const ini = prevHalf===1 ? new Date(prevY, prevM, 1) : new Date(prevY, prevM, 16);
+      if(ini < fechaInicio) break;
+      half = prevHalf; m = prevM; y = prevY;
     }
-    for(let i=0; i<totalNecesarios + pasadosNecesarios; i++){
+    for(let i=0; i<totalNecesarios + maxRetro; i++){
       const last = new Date(y, m+1, 0).getDate();
       let ini, fin, lbl;
       if(half===1){
@@ -399,8 +417,13 @@ function calcPeriodosDesdeHoy(){
         ini = new Date(y,m,16); fin = new Date(y,m,last);
         lbl = `16-${last} ${MESES[m]} ${y}`;
       }
-      periodos.push({lbl, ini, fin});
+      // Solo agregar si está dentro del rango válido (>= fechaInicio)
+      if(fin >= fechaInicio){
+        periodos.push({lbl, ini, fin});
+      }
       half++; if(half>2){ half=1; m++; if(m>11){m=0;y++;} }
+      // Para no generar muchos: si ya pasamos suficientes adelante de hoy, parar
+      if(periodos.length >= totalNecesarios + 24) break;
     }
   } else {
     // SEMANAL: el día configurado (día de cobro) es el ÚLTIMO día del periodo
@@ -413,13 +436,23 @@ function calcPeriodosDesdeHoy(){
     finActual.setDate(finActual.getDate() + diff);
     // ini del periodo actual = fin - 6
     let iniActual = new Date(finActual); iniActual.setDate(finActual.getDate() - 6);
-    // Retroceder pasadosNecesarios semanas
-    iniActual.setDate(iniActual.getDate() - 7*pasadosNecesarios);
-    for(let i=0; i<totalNecesarios + pasadosNecesarios; i++){
+
+    // Retroceder pero NUNCA antes de fechaInicio
+    while(true){
+      const prev = new Date(iniActual); prev.setDate(iniActual.getDate() - 7);
+      if(prev < fechaInicio) break;
+      iniActual = prev;
+    }
+    // Generar desde iniActual hacia adelante
+    const maxIters = totalNecesarios + 60; // safety
+    for(let i=0; i<maxIters; i++){
       const ini = new Date(iniActual); ini.setDate(iniActual.getDate() + i*7);
       const fin = new Date(ini); fin.setDate(ini.getDate()+6);
+      if(fin < fechaInicio){ continue; } // safety extra
       const lbl = `${ini.getDate()} ${MESES[ini.getMonth()]} — ${fin.getDate()} ${MESES[fin.getMonth()]} ${fin.getFullYear()}`;
       periodos.push({lbl, ini, fin});
+      // Si ya tenemos suficientes futuros desde hoy, parar
+      if(ini > hoy && periodos.length >= totalNecesarios + 12) break;
     }
   }
   return periodos;
@@ -790,53 +823,37 @@ function cerrarPeriodo(){
   renderAll();
 }
 
+// Helper: ¿el periodo navegado está guardado/bloqueado (modo solo-lectura)?
+function isPeriodoBloqueado(){
+  const snap = (typeof getSnapshotActual === 'function') ? getSnapshotActual() : null;
+  return !!snap;
+}
+window.isPeriodoBloqueado = isPeriodoBloqueado;
+
+// Helper: ¿el periodo navegado es ANTERIOR al periodo actual real (HOY)?
+function isPeriodoPasado(){
+  const actualIdx = calcPeriodoActualIdx();
+  return S.periodoIdx < actualIdx;
+}
+window.isPeriodoPasado = isPeriodoPasado;
+
 function editarAntesCerrar(){
   id('close-banner').classList.remove('show');
 }
 
 // ═══════════════════════════════════════════════════════
-// AUTO-GUARDADO — guarda periodos pasados automáticamente
+// AVANCE AUTOMÁTICO DE PERIODO — NO crea snapshots automáticos.
+// Solo posiciona S.periodoIdx en el periodo que contiene HOY.
+// El usuario debe guardar manualmente los periodos pasados que quiera respaldar.
 // ═══════════════════════════════════════════════════════
 function checkAutoGuardado(){
-  const hoy = new Date(); hoy.setHours(0,0,0,0);
   const actualIdx = calcPeriodoActualIdx();
-  let autoGuardados = 0;
-
-  // Si el periodo actual real está más adelante que S.periodoIdx,
-  // auto-guardar los periodos intermedios
-  while(S.periodoIdx < actualIdx){
-    const p = PERIODOS[S.periodoIdx];
-    if(!p) break;
-
-    // Solo guardar si no está ya en historial
-    if(!S.historial.some(h => h.periodo === p.lbl)){
-      const snap = {
-        periodo: p.lbl,
-        ini: p.ini.toISOString(),
-        fin: p.fin.toISOString(),
-        sueldo: getSueldoPeriodo(),
-        extras: calcTotalExtras(),
-        totalPerc: calcTotalPerc(),
-        totalDedu: calcTotalDedu(),
-        disponible: calcDisponible(),
-        ahorro: S.ahoMonto||0,
-        guardadoEl: new Date().toISOString(),
-        auto: true
-      };
-      S.historial.push(snap);
-      autoGuardados++;
-    }
-
-    // Avanzar al siguiente periodo
-    S.periodoIdx++;
+  // Si S.periodoIdx no apunta al periodo actual, ajustarlo silenciosamente.
+  // NO se crean snapshots auto-guardados (esos solo existen cuando el usuario presiona "Guardar y continuar").
+  if(actualIdx >= 0 && S.periodoIdx !== actualIdx){
+    S.periodoIdx = actualIdx;
     S.periodoCerrado = false;
-    S.extras = [];
-    S.movimientos = [];
-  }
-
-  if(autoGuardados > 0){
     save();
-    console.log(`Auto-guardado: ${autoGuardados} periodo(s) guardados automáticamente`);
   }
 }
 
@@ -2339,6 +2356,7 @@ function calcProxPagoSvcDate(s){
 function renderSvc(){
   const list = id('svc-list');
   const label = S.modo==='QUINCENAL'?'quincena':'semana';
+  const bloq = isPeriodoBloqueado();
   if(!S.servicios.length){
     list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin servicios — agrega el primero</div>';
     id('tot-svc').textContent='$0.00'; return;
@@ -2354,8 +2372,6 @@ function renderSvc(){
               : s.freqSvc==='QUINCENAL' ? 'Quincenal'
               : freqLabel(s.cadacuanto||1);
     const subLetra = S.modo==='SEMANAL' ? 'S' : 'Q';
-    // Mostrar S/Q solo cuando aporta info: NO mostrar si freq y modo coinciden trivialmente
-    // (servicio semanal + modo semanal = siempre 1/1, redundante)
     const ocultarSub = (s.freqSvc==='SEMANAL' && S.modo==='SEMANAL') ||
                        (s.freqSvc==='QUINCENAL' && S.modo==='QUINCENAL');
     const sublbl = (!ocultarSub && calc && calc.nTotal>=1) ? `${subLetra}${calc.quincenaActual}/${calc.nTotal}` : '';
@@ -2371,7 +2387,7 @@ function renderSvc(){
         <div style="font-size:13px;font-weight:700;font-family:var(--mono);color:var(--text2)">${mxn(s.monto)}</div>
         <div style="font-size:11px;color:var(--teal);margin-top:2px">-${mxn(calc?calc.pagoQuincena:0)} / ${label}</div>
       </div>
-      <span class="ch-del" onclick="borrarSvc(${i})">×</span>
+      ${bloq?'':`<span class="ch-del" onclick="borrarSvc(${i})">×</span>`}
     </div>`;
   }).join('');
   id('tot-svc').textContent = '-'+mxn(calcTotalSvc());
@@ -4417,7 +4433,68 @@ window.renderAll = function(){
   updateDates();
   syncSidebarAlert();
   aplicarSecciones();
+  // Aplicar bloqueo global si el periodo navegado tiene snapshot guardado (foto del momento)
+  aplicarBloqueoPeriodo();
 };
+
+// ═══════════════════════════════════════════════════════
+// Bloqueo global del periodo cuando hay snapshot guardado.
+// Recorre el DOM y deshabilita botones de agregar/eliminar/limpiar/edición
+// en TODAS las secciones para que sea modo solo-lectura.
+// ═══════════════════════════════════════════════════════
+function aplicarBloqueoPeriodo(){
+  const bloq = isPeriodoBloqueado();
+  // Botones de agregar (.add-btn)
+  document.querySelectorAll('.add-btn').forEach(b=>{
+    b.disabled = bloq;
+    b.style.opacity = bloq ? '0.4' : '';
+    b.style.cursor = bloq ? 'not-allowed' : '';
+    b.style.pointerEvents = bloq ? 'none' : '';
+  });
+  // Botones eliminar individual (×)
+  document.querySelectorAll('.ch-del').forEach(b=>{
+    b.style.display = bloq ? 'none' : '';
+  });
+  // Botones limpiar (los que tienen onclick con "limpiar")
+  document.querySelectorAll('[onclick*="limpiar"]').forEach(b=>{
+    if(bloq){
+      b.style.display = 'none';
+    } else if(b.style.display === 'none' && !b.dataset.alwaysHidden){
+      b.style.display = '';
+    }
+  });
+  // Inputs de monto/sueldo: bloquear edición
+  ['sueldo-input','aho-input','aho-slider'].forEach(idn=>{
+    const el = id(idn);
+    if(el){
+      el.disabled = bloq;
+      if(bloq){
+        el.style.opacity = '0.6';
+        el.style.cursor = 'not-allowed';
+      } else {
+        el.style.opacity = '';
+        el.style.cursor = '';
+      }
+    }
+  });
+  // Toggle sueldo fijo y modo ahorro: bloquear
+  document.querySelectorAll('input[type="checkbox"]').forEach(c=>{
+    if(c.id === 'sueldo-fijo-toggle' || c.id === 'aho-modo-pct' || c.id === 'aho-modo-fijo'){
+      c.disabled = bloq;
+    }
+  });
+  // Banner amarillo de "Periodo activo" no debe salir si está bloqueado
+  if(bloq){
+    const banner = id('close-banner');
+    if(banner) banner.classList.remove('show');
+  }
+  // Mostrar mensaje claro arriba si está bloqueado
+  const lockMsg = id('periodo-lock-msg');
+  if(lockMsg){
+    lockMsg.style.display = bloq ? 'block' : 'none';
+  }
+}
+window.aplicarBloqueoPeriodo = aplicarBloqueoPeriodo;
 
 // ═══════════════════════════════════════════════════════
 // RENDER MSI — sección independiente, en tiempo real

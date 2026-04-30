@@ -573,16 +573,13 @@ function totalPeriodosDisponibles(){
 }
 
 function navPeriod(d){
+  // Regenerar PERIODOS por si fechaInicioUso cambió
+  PERIODOS = calcPeriodosDesdeHoy();
   const actualIdx = calcPeriodoActualIdx();
   const maxIdx = actualIdx + totalPeriodosDisponibles();
   const nuevo = S.periodoIdx + d;
   if(nuevo < 0) return;
   if(nuevo > maxIdx) return;
-  // Asegurarse de que PERIODOS tiene suficientes entradas
-  while(PERIODOS.length <= nuevo + 1){
-    PERIODOS = calcPeriodosDesdeHoy();
-    break;
-  }
   S.periodoIdx = nuevo;
   save();
   window.renderAll();
@@ -3032,8 +3029,24 @@ function guardarExt(){
   const c=id('ext-c').value.trim(), m=parseFloat(id('ext-m').value)||0, d=id('ext-d').value;
   let f=id('ext-f').value;
   if(!c||!m){alert('Concepto y monto son requeridos');return;}
-  // Si no puso fecha, usar HOY (no dejar vacío para que el filtro por periodo funcione bien)
-  if(!f){ f = todayStr(); }
+  // Si no puso fecha, usar fecha que caiga DENTRO del periodo navegado.
+  // Si el periodo navegado contiene HOY, usar hoy; si no, usar el inicio del periodo.
+  if(!f){
+    const p = PERIODOS[S.periodoIdx];
+    if(p){
+      const hoy = new Date(); hoy.setHours(0,0,0,0);
+      const pIni = new Date(p.ini); pIni.setHours(0,0,0,0);
+      const pFin = new Date(p.fin); pFin.setHours(0,0,0,0);
+      if(hoy >= pIni && hoy <= pFin){
+        f = todayStr();
+      } else {
+        // Usar el inicio del periodo navegado para que caiga en su rango
+        f = _isoStr(pIni);
+      }
+    } else {
+      f = todayStr();
+    }
+  }
   const ext={concepto:c,monto:m,desc:d,fecha:f};
   S.extras.push(ext);
   saveExt(ext).catch(console.warn);

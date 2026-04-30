@@ -115,32 +115,17 @@ async function loadFromSupabase(silencioso=false){
   } catch(e){ console.warn('servicios load fail:', e); }
 
   // EXTRAS
-  // IMPORTANTE: filtramos por la fecha del extra (que caiga en el rango del periodo actual),
-  // no por periodo_idx que es frágil cuando se regeneran los periodos.
+  // IMPORTANTE: cargamos TODOS los extras del usuario.
+  // El filtrado por periodo (según fecha) se hace en cada render,
+  // así al navegar entre periodos siempre se respeta el filtro correcto.
   try {
     const {data} = await supa.from('extras').select('*').eq('user_id', UID).order('created_at');
     if(data){
-      const todos = data.map(r=>({
+      S.extras = data.map(r=>({
         id:r.id, concepto:r.concepto, monto:parseFloat(r.monto),
         desc:r.descripcion||'', fecha:r.fecha||'',
         periodo_idx: r.periodo_idx
       }));
-      // Filtrar por fecha si la tiene; si no tiene fecha, usar periodo_idx como fallback
-      const p = PERIODOS[S.periodoIdx];
-      if(p){
-        const pIni = new Date(p.ini); pIni.setHours(0,0,0,0);
-        const pFin = new Date(p.fin); pFin.setHours(0,0,0,0);
-        S.extras = todos.filter(r => {
-          if(r.fecha){
-            const f = new Date(r.fecha+'T12:00:00');
-            return f >= pIni && f <= pFin;
-          }
-          // Sin fecha: usar periodo_idx
-          return r.periodo_idx === S.periodoIdx;
-        });
-      } else {
-        S.extras = todos.filter(r => r.periodo_idx === S.periodoIdx);
-      }
     }
   } catch(e){ console.warn('extras load fail:', e); }
 
@@ -1787,7 +1772,26 @@ function calcTotalSvc(){
   },0);
 }
 
-function calcTotalExtras(){ return S.extras.reduce((a,e)=>a+e.monto,0) }
+// Devuelve los extras que pertenecen al periodo navegado actualmente (filtrado por fecha)
+function extrasDelPeriodoActual(){
+  const p = PERIODOS[S.periodoIdx];
+  if(!p) return [];
+  const pIni = new Date(p.ini); pIni.setHours(0,0,0,0);
+  const pFin = new Date(p.fin); pFin.setHours(0,0,0,0);
+  return S.extras.filter(e => {
+    if(e.fecha){
+      const f = new Date(e.fecha+'T12:00:00');
+      return f >= pIni && f <= pFin;
+    }
+    // Sin fecha: usar periodo_idx como fallback solo si existe
+    if(typeof e.periodo_idx === 'number'){
+      return e.periodo_idx === S.periodoIdx;
+    }
+    return false;
+  });
+}
+
+function calcTotalExtras(){ return extrasDelPeriodoActual().reduce((a,e)=>a+e.monto,0) }
 
 // MSI: pago mensual ÷ quincenas desde HOY. Solo los míos van a deducciones.
 function calcTotalMsi(){
@@ -2018,59 +2022,77 @@ function renderPrincipal(){
   // Desglose de periodo guardado
   const desgloseEl = id('periodo-desglose');
   if(desgloseEl){
-    if(snap && snap.desglose){
-      const d = snap.desglose;
+    if(snap){
+      const d = snap.desglose || null;
       let html = `<div class="card" style="border-left:3px solid var(--blue)">
         <div class="card-hdr"><span>Desglose del periodo ${snap.auto?'(auto-guardado)':''}</span>
           <span style="font-size:10px;color:var(--text3)">${snap.guardadoEl?new Date(snap.guardadoEl).toLocaleDateString('es-MX'):''}  — solo lectura</span>
         </div>`;
 
-      // Servicios
-      if(d.servicios?.length){
-        html += `<div class="sec-l">Servicios</div>`;
-        d.servicios.forEach(s=>{
-          html += `<div class="row"><div class="row-l">${s.concepto} <span style="color:var(--text3);font-size:10px">Q${s.quincenaActual}/${s.nTotal} · ${mxn(s.monto)}/${(s.cadacuanto||1)>1?s.cadacuanto+'m':'mes'}</span></div><div class="row-a neg">-${mxn(s.pagoQuincena)}</div></div>`;
-        });
-      }
+      // Si NO hay desglose pero hay totales, mostrar resumen por categoría
+      if(!d){
+        if(snap.totalSvc || snap.totalDeu || snap.totalMsi || snap.totalMov || snap.totalOtros){
+          html += `<div class="row"><div class="row-l">Servicios</div><div class="row-a neg">-${mxn(snap.totalSvc||0)}</div></div>`;
+          html += `<div class="row"><div class="row-l">Deudas</div><div class="row-a neg">-${mxn(snap.totalDeu||0)}</div></div>`;
+          html += `<div class="row"><div class="row-l">MSI</div><div class="row-a neg">-${mxn(snap.totalMsi||0)}</div></div>`;
+          html += `<div class="row"><div class="row-l">Movimientos TDC</div><div class="row-a neg">-${mxn(snap.totalMov||0)}</div></div>`;
+          html += `<div class="row"><div class="row-l">Otros gastos</div><div class="row-a neg">-${mxn(snap.totalOtros||0)}</div></div>`;
+          html += `<div class="row"><div class="row-l">Ahorro</div><div class="row-a neg">-${mxn(snap.ahorro||0)}</div></div>`;
+          html += `<div class="row" style="font-weight:700;border-top:1px solid var(--border);margin-top:6px;padding-top:6px"><div class="row-l">Disponible</div><div class="row-a pos">${mxn(snap.disponible||0)}</div></div>`;
+        } else {
+          html += `<div style="padding:14px;text-align:center;color:var(--text3);font-size:12px">Snapshot guardado sin desglose detallado.</div>`;
+        }
+      } else {
+        // Servicios
+        if(d.servicios?.length){
+          html += `<div class="sec-l">Servicios</div>`;
+          d.servicios.forEach(s=>{
+            const pq = s.pagoQuincena || ((s.monto||0)/2); // fallback
+            html += `<div class="row"><div class="row-l">${s.concepto} <span style="color:var(--text3);font-size:10px">Q${s.quincenaActual}/${s.nTotal} · ${mxn(s.monto)}/${(s.cadacuanto||1)>1?s.cadacuanto+'m':'mes'}</span></div><div class="row-a neg">-${mxn(pq)}</div></div>`;
+          });
+        }
 
-      // Deudas
-      if(d.deudas?.length){
-        html += `<div class="sec-l">Deudas</div>`;
-        d.deudas.forEach(dd=>{
-          html += `<div class="row"><div class="row-l">${dd.concepto} <span style="color:var(--text3);font-size:10px">Q${dd.quincenaActual}/${dd.nTotal} · Plazo ${dd.plazoActual}/${dd.plazo} · ${mxn(dd.pago)}/${dd.freq?.toLowerCase()||'mes'}</span></div><div class="row-a neg">-${mxn(dd.pagoQuincena)}</div></div>`;
-        });
-      }
+        // Deudas
+        if(d.deudas?.length){
+          html += `<div class="sec-l">Deudas</div>`;
+          d.deudas.forEach(dd=>{
+            const pq = dd.pagoQuincena || ((dd.pago||0)/2);
+            html += `<div class="row"><div class="row-l">${dd.concepto} <span style="color:var(--text3);font-size:10px">Q${dd.quincenaActual}/${dd.nTotal} · Plazo ${dd.plazoActual}/${dd.plazo} · ${mxn(dd.pago)}/${dd.freq?.toLowerCase()||'mes'}</span></div><div class="row-a neg">-${mxn(pq)}</div></div>`;
+          });
+        }
 
-      // MSI
-      if(d.msis?.length){
-        html += `<div class="sec-l">MSI</div>`;
-        d.msis.forEach(m=>{
-          html += `<div class="row"><div class="row-l">${m.concepto} <span style="color:var(--text3);font-size:10px">${m.tarjeta} · Q${m.quincenaActual}/${m.nTotal} · Plazo ${m.plazoActual}/${m.plazo}</span></div><div class="row-a neg">-${mxn(m.pagoQuincena)}</div></div>`;
-        });
-      }
+        // MSI
+        if(d.msis?.length){
+          html += `<div class="sec-l">MSI</div>`;
+          d.msis.forEach(m=>{
+            const pq = m.pagoQuincena || ((m.monto||0)/(m.plazo||1)/2);
+            html += `<div class="row"><div class="row-l">${m.concepto} <span style="color:var(--text3);font-size:10px">${m.tarjeta} · Q${m.quincenaActual}/${m.nTotal} · Plazo ${m.plazoActual}/${m.plazo}</span></div><div class="row-a neg">-${mxn(pq)}</div></div>`;
+          });
+        }
 
-      // Extras
-      if(d.extras?.length){
-        html += `<div class="sec-l">Extras</div>`;
-        d.extras.forEach(e=>{
-          html += `<div class="row"><div class="row-l">${e.concepto} <span style="color:var(--text3);font-size:10px">${e.fecha||''}</span></div><div class="row-a pos">+${mxn(e.monto)}</div></div>`;
-        });
-      }
+        // Extras
+        if(d.extras?.length){
+          html += `<div class="sec-l">Extras</div>`;
+          d.extras.forEach(e=>{
+            html += `<div class="row"><div class="row-l">${e.concepto} <span style="color:var(--text3);font-size:10px">${e.fecha||''}</span></div><div class="row-a pos">+${mxn(e.monto)}</div></div>`;
+          });
+        }
 
-      // Otros gastos
-      if(d.otrosGastos?.length){
-        html += `<div class="sec-l">Otros gastos</div>`;
-        d.otrosGastos.forEach(g=>{
-          html += `<div class="row"><div class="row-l">${g.concepto}</div><div class="row-a neg">-${mxn(g.monto)}</div></div>`;
-        });
-      }
+        // Otros gastos
+        if(d.otrosGastos?.length){
+          html += `<div class="sec-l">Otros gastos</div>`;
+          d.otrosGastos.forEach(g=>{
+            html += `<div class="row"><div class="row-l">${g.concepto}</div><div class="row-a neg">-${mxn(g.monto)}</div></div>`;
+          });
+        }
 
-      // Movimientos TDC
-      if(d.movimientos?.length){
-        html += `<div class="sec-l">Movimientos TDC</div>`;
-        d.movimientos.forEach(m=>{
-          html += `<div class="row"><div class="row-l">${m.concepto} <span style="color:var(--text3);font-size:10px">${m.tarjeta}${m.incluir==='NO'?' (excluido)':''}</span></div><div class="row-a neg">-${mxn(m.monto)}</div></div>`;
-        });
+        // Movimientos TDC
+        if(d.movimientos?.length){
+          html += `<div class="sec-l">Movimientos TDC</div>`;
+          d.movimientos.forEach(m=>{
+            html += `<div class="row"><div class="row-l">${m.concepto} <span style="color:var(--text3);font-size:10px">${m.tarjeta}${m.incluir==='NO'?' (excluido)':''}</span></div><div class="row-a neg">-${mxn(m.monto)}</div></div>`;
+          });
+        }
       }
 
       html += `</div>`;
@@ -2360,11 +2382,14 @@ function renderSvc(){
 // ═══════════════════════════════════════════════════════
 function renderExt(){
   const list = id('ext-list');
-  if(!S.extras.length){
+  const extrasVis = extrasDelPeriodoActual();
+  if(!extrasVis.length){
     list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin ingresos extra este periodo</div>';
     id('tot-ext').textContent='$0.00'; return;
   }
-  list.innerHTML = S.extras.map((e,i)=>`
+  list.innerHTML = extrasVis.map(e=>{
+    const i = S.extras.indexOf(e);
+    return `
     <div class="ext-item">
       <div class="ext-dot"></div>
       <div class="ext-info">
@@ -2375,7 +2400,8 @@ function renderExt(){
         <div class="ext-a">+${mxn(e.monto)}</div>
         <span class="ch-del" onclick="delExt(${i})">×</span>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   id('tot-ext').textContent = '+'+mxn(calcTotalExtras());
 }
 
@@ -2935,8 +2961,11 @@ async function limpiarServicios(){
 }
 
 function guardarExt(){
-  const c=id('ext-c').value.trim(), m=parseFloat(id('ext-m').value)||0, d=id('ext-d').value, f=id('ext-f').value;
+  const c=id('ext-c').value.trim(), m=parseFloat(id('ext-m').value)||0, d=id('ext-d').value;
+  let f=id('ext-f').value;
   if(!c||!m){alert('Concepto y monto son requeridos');return;}
+  // Si no puso fecha, usar HOY (no dejar vacío para que el filtro por periodo funcione bien)
+  if(!f){ f = todayStr(); }
   const ext={concepto:c,monto:m,desc:d,fecha:f};
   S.extras.push(ext);
   saveExt(ext).catch(console.warn);
@@ -3987,11 +4016,14 @@ window.renderSvc = function(){
 const _origRenderExt = renderExt;
 window.renderExt = function(){
   const list = id('ext-list');
-  if(!S.extras.length){
+  const extrasVis = extrasDelPeriodoActual();
+  if(!extrasVis.length){
     list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin ingresos extra este periodo</div>';
     id('tot-ext').textContent='$0.00'; return;
   }
-  list.innerHTML = S.extras.map((e,i)=>`
+  list.innerHTML = extrasVis.map(e=>{
+    const i = S.extras.indexOf(e);
+    return `
     <div class="ext-item">
       <div class="ext-dot"></div>
       <div class="ext-info">
@@ -4002,7 +4034,8 @@ window.renderExt = function(){
         <div class="ext-a">+${mxn(e.monto)}</div>
       </div>
       <span class="ch-del" onclick="borrarExt(${i})" title="Eliminar">×</span>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   id('tot-ext').textContent = '+'+mxn(calcTotalExtras());
 };
 
@@ -5080,15 +5113,17 @@ function syncTandaExtras(){
   };
 })();
 
-// Override de renderExt: marcar extras autoTanda y bloquear su eliminación manual
+// Override de renderExt: marcar extras autoTanda + filtrar por periodo
 (function(){
   window.renderExt = function(){
     const list = id('ext-list');
-    if(!S.extras || !S.extras.length){
+    const extrasVis = extrasDelPeriodoActual();
+    if(!extrasVis.length){
       list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin ingresos extra este periodo</div>';
       id('tot-ext').textContent='$0.00'; return;
     }
-    list.innerHTML = S.extras.map((e,i)=>{
+    list.innerHTML = extrasVis.map(e=>{
+      const i = S.extras.indexOf(e);
       const auto = !!e.autoTanda;
       const dotColor = auto ? 'background:var(--teal)' : '';
       const delBtn = auto

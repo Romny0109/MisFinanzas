@@ -799,22 +799,31 @@ function cerrarPeriodo(){
   saveHistDB(snap).catch(console.warn);
   S.periodoCerrado = true;
 
-  // Avanzar MSI
-  S.msis = S.msis.map(m=>{
-    const nuevo = Math.min((m.pagoActual||1)+1, m.plazo);
-    const saldoNuevo = Math.max(0,(m.plazo-nuevo)*(m.pago||0));
-    if(m.id) supa.from('msis').update({pago_actual:nuevo,saldo_pendiente:saldoNuevo}).eq('id',m.id).catch(console.warn);
-    return {...m, pagoActual:nuevo, saldoPendiente:saldoNuevo};
-  }).filter(m=>m.pagoActual<=m.plazo);
+  // Si este periodo fue REABIERTO previamente, NO avanzar plazos otra vez
+  // (los plazos ya avanzaron en el cierre anterior, sería doble avance)
+  const fueReabierto = (S.periodosReabiertos||[]).includes(p.lbl);
 
-  // Avanzar deudas
-  S.deudas = S.deudas.map(d=>{
-    const nuevo=(d.pagoActual||1)+1;
-    const restantes=Math.max(0,d.pagosRestantes-1);
-    const saldoNuevo=Math.max(0,restantes*(d.pago||0));
-    if(d.id) supa.from('deudas').update({pago_actual:nuevo,pagos_restantes:restantes,saldo_pendiente:saldoNuevo}).eq('id',d.id).catch(console.warn);
-    return {...d, pagoActual:nuevo, pagosRestantes:restantes, saldoPendiente:saldoNuevo};
-  });
+  if(!fueReabierto){
+    // Avanzar MSI
+    S.msis = S.msis.map(m=>{
+      const nuevo = Math.min((m.pagoActual||1)+1, m.plazo);
+      const saldoNuevo = Math.max(0,(m.plazo-nuevo)*(m.pago||0));
+      if(m.id) supa.from('msis').update({pago_actual:nuevo,saldo_pendiente:saldoNuevo}).eq('id',m.id).catch(console.warn);
+      return {...m, pagoActual:nuevo, saldoPendiente:saldoNuevo};
+    }).filter(m=>m.pagoActual<=m.plazo);
+
+    // Avanzar deudas
+    S.deudas = S.deudas.map(d=>{
+      const nuevo=(d.pagoActual||1)+1;
+      const restantes=Math.max(0,d.pagosRestantes-1);
+      const saldoNuevo=Math.max(0,restantes*(d.pago||0));
+      if(d.id) supa.from('deudas').update({pago_actual:nuevo,pagos_restantes:restantes,saldo_pendiente:saldoNuevo}).eq('id',d.id).catch(console.warn);
+      return {...d, pagoActual:nuevo, pagosRestantes:restantes, saldoPendiente:saldoNuevo};
+    });
+  } else {
+    // Limpiar el flag — ya re-guardamos sin avanzar
+    S.periodosReabiertos = (S.periodosReabiertos||[]).filter(x=>x!==p.lbl);
+  }
 
   // Avanzar al periodo que contiene HOY (no necesariamente +1, podría haberse guardado un periodo viejo)
   const idxHoy = (typeof calcPeriodoActualIdx === 'function') ? calcPeriodoActualIdx() : -1;
@@ -844,6 +853,41 @@ function isPeriodoPasado(){
   return S.periodoIdx < actualIdx;
 }
 window.isPeriodoPasado = isPeriodoPasado;
+
+// Desbloquea un periodo guardado borrando su snapshot.
+// Útil cuando se quiere editar/agregar datos olvidados; después se vuelve a guardar.
+// IMPORTANTE: marca el periodo como "ya avanzado" para que al re-guardar NO se vuelvan
+// a avanzar plazos de deudas/MSI (evita doble avance).
+window.desbloquearPeriodoGuardado = async function(ev){
+  if(ev) ev.preventDefault();
+  const snap = getSnapshotActual();
+  if(!snap){ alert('No hay snapshot para desbloquear'); return; }
+  if(!confirm(`¿Desbloquear el periodo "${snap.periodo}" para editar?\n\nPodrás agregar/eliminar datos. Cuando termines, debes guardarlo de nuevo con "Guardar y continuar".\n\n⚠️ Los plazos de deudas y MSI NO volverán a avanzar al re-guardar (ya avanzaron la primera vez).`)) return;
+
+  try {
+    // Borrar snapshot de BD si tiene id
+    if(snap.id){
+      await supa.from('historial').delete().eq('id', snap.id);
+    } else {
+      // Sin id: borrar por user + periodo
+      await supa.from('historial').delete().eq('user_id', UID).eq('periodo', snap.periodo);
+    }
+    // Quitar del estado local
+    S.historial = S.historial.filter(h => h.periodo !== snap.periodo);
+    // Marcar este periodo como "ya cerrado una vez" (para no re-avanzar plazos)
+    if(!S.periodosReabiertos) S.periodosReabiertos = [];
+    if(!S.periodosReabiertos.includes(snap.periodo)){
+      S.periodosReabiertos.push(snap.periodo);
+    }
+    S.periodoCerrado = false;
+    save();
+    alert('✅ Periodo desbloqueado. Ahora puedes editarlo.\n\nCuando termines de agregar tus datos, presiona "Guardar y continuar" para volver a cerrarlo.');
+    renderAll();
+  } catch(e){
+    console.error('Error desbloqueando:', e);
+    alert('❌ Error al desbloquear. Revisa la consola.');
+  }
+};
 
 function editarAntesCerrar(){
   id('close-banner').classList.remove('show');
@@ -2205,7 +2249,7 @@ function renderPrincipal(){
     inpSueldo.style.cursor = esReadOnly ? 'not-allowed' : '';
   }
   if(snap){
-    id('fijo-note').textContent = 'Periodo guardado — navegas en modo lectura';
+    id('fijo-note').innerHTML = `Periodo guardado — navegas en modo lectura · <a href="#" onclick="desbloquearPeriodoGuardado(event)" style="color:var(--blue);text-decoration:underline;font-weight:600">Desbloquear para editar</a>`;
     id('fijo-note').className = 'ibox';
   } else {
     id('fijo-note').textContent = S.sueldoFijo

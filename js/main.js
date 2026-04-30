@@ -1930,6 +1930,16 @@ function calcDisponible(){ return calcTotalPerc()-calcTotalDedu() }
 // ═══════════════════════════════════════════════════════
 function renderPrincipal(){
   const snap = getSnapshotActual();
+  // DEBUG: log para diagnóstico
+  if(snap) console.log('📊 Snapshot del periodo:', JSON.stringify({
+    periodo: snap.periodo,
+    tieneTotales: typeof snap.totalSvc === 'number',
+    tieneDesglose: !!snap.desglose,
+    desgloseKeys: snap.desglose ? Object.keys(snap.desglose) : null,
+    serviciosCount: snap.desglose?.servicios?.length || 0,
+    deudasCount: snap.desglose?.deudas?.length || 0,
+    primerServicio: snap.desglose?.servicios?.[0] || null
+  }, null, 2));
   const label = S.modo==='QUINCENAL'?'quincena':'semana';
 
   // Use snapshot data if viewing a past saved period, otherwise live data
@@ -1938,35 +1948,37 @@ function renderPrincipal(){
     sueldo = snap.sueldo||0;
     extras = snap.extras||0;
     totalPerc = snap.totalPerc||0;
-    // Preferir totales por categoría guardados directamente.
-    // Si no existen (snapshots viejos), reconstruir desde el desglose.
+    // Preferir totales por categoría guardados directamente (snapshots a partir de v3.45)
     if(typeof snap.totalSvc === 'number'){
       svc = snap.totalSvc;
-    } else {
-      // Fallback robusto: si pagoQuincena es 0 pero hay monto, calcular como monto/2 (asumiendo quincenal mensual)
-      svc = (snap.desglose?.servicios||[]).reduce((a,s)=>{
+      deu = snap.totalDeu||0;
+      msiTotal = snap.totalMsi||0;
+      tdc = snap.totalMov||0;
+      otros = snap.totalOtros||0;
+    } else if(snap.desglose){
+      // Snapshots viejos con desglose: reconstruir
+      svc = (snap.desglose.servicios||[]).reduce((a,s)=>{
         const pq = s.pagoQuincena || 0;
         return a + (pq > 0 ? pq : (s.monto||0) / 2);
       }, 0);
-    }
-    if(typeof snap.totalDeu === 'number'){
-      deu = snap.totalDeu;
-    } else {
-      deu = (snap.desglose?.deudas||[]).reduce((a,d)=>{
+      deu = (snap.desglose.deudas||[]).reduce((a,d)=>{
         const pq = d.pagoQuincena || 0;
         return a + (pq > 0 ? pq : (d.pago||0) / 2);
       }, 0);
-    }
-    if(typeof snap.totalMsi === 'number'){
-      msiTotal = snap.totalMsi;
-    } else {
-      msiTotal = (snap.desglose?.msis||[]).filter(m=>m.incluir==='SI').reduce((a,m)=>{
+      msiTotal = (snap.desglose.msis||[]).filter(m=>m.incluir==='SI').reduce((a,m)=>{
         const pq = m.pagoQuincena || 0;
         return a + (pq > 0 ? pq : ((m.monto||0)/(m.plazo||1)/2));
       }, 0);
+      tdc = (snap.desglose.movimientos||[]).filter(m=>m.incluir==='SI').reduce((a,m)=>a+m.monto,0)/2;
+      otros = (snap.desglose.otrosGastos||[]).reduce((a,g)=>a+g.monto,0);
+    } else {
+      // Snapshot SIN desglose (legacy): calcular en vivo aproximado
+      svc = calcTotalSvc();
+      deu = calcTotalDeu();
+      msiTotal = calcTotalMsi();
+      tdc = calcTotalMov();
+      otros = calcTotalOtros();
     }
-    tdc = (typeof snap.totalMov === 'number') ? snap.totalMov : (snap.desglose?.movimientos||[]).filter(m=>m.incluir==='SI').reduce((a,m)=>a+m.monto,0)/2;
-    otros = (typeof snap.totalOtros === 'number') ? snap.totalOtros : (snap.desglose?.otrosGastos||[]).reduce((a,g)=>a+g.monto,0);
     aho = snap.ahorro||0;
     totalDedu = snap.totalDedu||0;
     disp = snap.disponible||0;

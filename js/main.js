@@ -385,11 +385,19 @@ function calcPeriodosDesdeHoy(){
   const totalNecesarios = 4 + periodosExtra + 5;
 
   // FECHA DE INICIO DE USO: nunca generamos periodos antes de esta fecha.
-  // Si no está definida, usamos hoy (no hay periodos pasados).
   let fechaInicio = null;
   if(S.fechaInicioUso){
     fechaInicio = new Date(S.fechaInicioUso+'T12:00:00');
     fechaInicio.setHours(0,0,0,0);
+  } else if(S.historial && S.historial.length > 0){
+    // Fallback: si no hay fechaInicioUso pero sí hay snapshots, usar la fecha del más antiguo
+    const inis = S.historial.map(h => h.ini ? new Date(h.ini) : null).filter(d => d);
+    if(inis.length > 0){
+      fechaInicio = new Date(Math.min(...inis.map(d => d.getTime())));
+      fechaInicio.setHours(0,0,0,0);
+    } else {
+      fechaInicio = new Date(hoy);
+    }
   } else {
     fechaInicio = new Date(hoy);
   }

@@ -144,6 +144,12 @@ async function cargarDatosUsuario(){
       S.extras = []; S.movimientos = [];
     }
   }
+  // Regenerar PERIODOS ahora que ya tenemos S.fechaInicioUso de config.
+  // Esto es CRÍTICO: la primera generación al cargar main.js fue sin fechaInicioUso,
+  // entonces no incluía periodos pasados. Aquí regeneramos con la fecha correcta.
+  if(typeof calcPeriodosDesdeHoy === 'function'){
+    PERIODOS = calcPeriodosDesdeHoy();
+  }
   S.periodoIdx = (typeof calcPeriodoActualIdx === 'function') ? calcPeriodoActualIdx() : 0;
   S.ultimoPeriodoLabel = periodoActualLabel;
   localStorage.setItem('finanzas_'+UID, JSON.stringify(S));

@@ -890,15 +890,15 @@ window.desbloquearPeriodoGuardado = async function(ev){
   if(!confirm(`¿Desbloquear el periodo "${snap.periodo}" para editar?\n\nPodrás agregar/eliminar datos. Cuando termines, debes guardarlo de nuevo con "Guardar y continuar".\n\n⚠️ Los plazos de deudas y MSI NO volverán a avanzar al re-guardar (ya avanzaron la primera vez).`)) return;
 
   try {
-    // Borrar snapshot de BD si tiene id
-    if(snap.id){
-      await supa.from('historial').delete().eq('id', snap.id);
-    } else {
-      // Sin id: borrar por user + periodo
-      await supa.from('historial').delete().eq('user_id', UID).eq('periodo', snap.periodo);
-    }
+    // Borrar TODOS los snapshots del mismo periodo (manuales + auto)
+    await supa.from('historial').delete().eq('user_id', UID).eq('periodo', snap.periodo);
     // Quitar del estado local
     S.historial = S.historial.filter(h => h.periodo !== snap.periodo);
+    // Resetear ahorro al base del periodo (recalcular en vivo)
+    if(S.ahoModo === 'pct'){
+      const perc = calcTotalPerc();
+      S.ahoMonto = Math.round(perc * (S.ahoPct||10) / 100);
+    }
     // Marcar este periodo como "ya cerrado una vez" (para no re-avanzar plazos)
     if(!S.periodosReabiertos) S.periodosReabiertos = [];
     if(!S.periodosReabiertos.includes(snap.periodo)){
@@ -910,7 +910,7 @@ window.desbloquearPeriodoGuardado = async function(ev){
     renderAll();
   } catch(e){
     console.error('Error desbloqueando:', e);
-    alert('❌ Error al desbloquear. Revisa la consola.');
+    alert('❌ Error al desbloquear: '+(e.message||e));
   }
 };
 

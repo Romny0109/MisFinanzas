@@ -142,24 +142,19 @@ async function cargarDatosUsuario(){
   // Auto-guardado
   const periodoAnteriorLabel = S.ultimoPeriodoLabel || null;
   const periodoActualLabel = PERIODOS[0] ? PERIODOS[0].lbl : null;
-  if(periodoAnteriorLabel && periodoActualLabel && periodoAnteriorLabel !== periodoActualLabel){
-    if(!S.historial.some(h => h.periodo === periodoAnteriorLabel)){
-      // Create snapshot with current data (best effort for past period)
-      const snap = crearSnapshot(true);
-      snap.periodo = periodoAnteriorLabel;
-      snap.ini = ''; snap.fin = '';
-      S.historial.push(snap);
-      S.extras = []; S.movimientos = [];
-    }
-  }
   // Regenerar PERIODOS ahora que ya tenemos S.fechaInicioUso de config.
-  // Esto es CRÍTICO: la primera generación al cargar main.js fue sin fechaInicioUso,
-  // entonces no incluía periodos pasados. Aquí regeneramos con la fecha correcta.
   if(typeof calcPeriodosDesdeHoy === 'function'){
     PERIODOS = calcPeriodosDesdeHoy();
   }
-  S.periodoIdx = (typeof calcPeriodoActualIdx === 'function') ? calcPeriodoActualIdx() : 0;
-  S.ultimoPeriodoLabel = periodoActualLabel;
+
+  // Auto-guardado inteligente: si S.periodoIdx apunta a un periodo ya terminado
+  // sin snapshot, lo guarda automáticamente con datos actuales antes de avanzar.
+  // (NO usa periodoAnteriorLabel/periodoActualLabel — eso era frágil)
+  if(typeof checkAutoGuardado === 'function'){
+    try { await checkAutoGuardado(); } catch(e){ console.warn('checkAutoGuardado:', e); }
+  }
+
+  S.ultimoPeriodoLabel = (PERIODOS[S.periodoIdx] && PERIODOS[S.periodoIdx].lbl) || '';
   localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
   window.renderAll();
   // Mostrar onboarding si es necesario (después de cargar todo desde Supabase)

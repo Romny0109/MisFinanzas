@@ -959,19 +959,43 @@ function editarAntesCerrar(){
 }
 
 // ═══════════════════════════════════════════════════════
-// AVANCE AUTOMÁTICO DE PERIODO — NO crea snapshots automáticos.
-// Solo posiciona S.periodoIdx en el periodo que contiene HOY.
-// El usuario debe guardar manualmente los periodos pasados que quiera respaldar.
+// AUTO-GUARDADO INTELIGENTE
+// Recorre TODOS los periodos anteriores al actual y guarda automáticamente
+// cualquiera que NO tenga snapshot todavía. Usa los datos actuales (que es lo
+// mejor que hay para periodos vencidos sin snapshot).
+// IMPORTANTE: NO crea periodos ficticios. Solo guarda los que YA existen en PERIODOS
+// (que ya respetan fecha_inicio_uso del usuario).
 // ═══════════════════════════════════════════════════════
-function checkAutoGuardado(){
+async function checkAutoGuardado(){
   const actualIdx = calcPeriodoActualIdx();
-  // Si S.periodoIdx no apunta al periodo actual, ajustarlo silenciosamente.
-  // NO se crean snapshots auto-guardados (esos solo existen cuando el usuario presiona "Guardar y continuar").
-  if(actualIdx >= 0 && S.periodoIdx !== actualIdx){
-    S.periodoIdx = actualIdx;
-    S.periodoCerrado = false;
-    save();
+  if(actualIdx < 0) return;
+
+  // Recorrer todos los periodos anteriores al actual
+  let guardados = 0;
+  const idxOriginal = S.periodoIdx;
+  for(let i = 0; i < actualIdx; i++){
+    const p = PERIODOS[i];
+    if(!p) continue;
+    const yaGuardado = S.historial && S.historial.some(h => h.periodo === p.lbl);
+    if(yaGuardado) continue;
+
+    try {
+      // Posicionar temporalmente en ese periodo para que crearSnapshot use los datos correctos
+      S.periodoIdx = i;
+      const snap = crearSnapshot(true); // true = auto-guardado
+      if(snap){
+        S.historial.push(snap);
+        await saveHistDB(snap);
+        guardados++;
+        console.log(`✅ Auto-guardado: ${p.lbl}`);
+      }
+    } catch(e){ console.warn('Auto-guardado falló para', p.lbl, ':', e); }
   }
+
+  // Avanzar al periodo actual
+  S.periodoIdx = actualIdx;
+  S.periodoCerrado = false;
+  if(guardados > 0) save();
 }
 
 // ══════════════════════════════════════════════════════

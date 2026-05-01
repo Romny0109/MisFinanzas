@@ -797,14 +797,15 @@ function cerrarPeriodo(){
   // Confirmación clara antes de guardar
   if(!confirm('¿Estás seguro? Una vez guardado, ya no podrás modificar este periodo.')) return;
 
-  if(S.historial.some(h=>h.periodo===p.lbl)) {
-    // Si ya estaba guardado, solo avanzar al periodo actual (el que contiene HOY)
-    const idxHoy = (typeof calcPeriodoActualIdx === 'function') ? calcPeriodoActualIdx() : Math.min(S.periodoIdx+1, PERIODOS.length-1);
-    S.periodoIdx = idxHoy;
-    S.periodoCerrado = false;
-    S.extras=[]; S.movimientos=[];
-    save(); renderAll(); return;
+  // Si YA existe un snapshot de este periodo (caso de re-guardar tras desbloquear),
+  // borrarlo de BD y de S.historial antes de crear el nuevo. Así el nuevo
+  // snapshot trae el desglose actualizado.
+  const yaExiste = S.historial.some(h => h.periodo === p.lbl);
+  if(yaExiste){
+    supa.from('historial').delete().eq('user_id', UID).eq('periodo', p.lbl).then(()=>{}).catch(console.warn);
+    S.historial = S.historial.filter(h => h.periodo !== p.lbl);
   }
+
   const snap = crearSnapshot(false);
   S.historial.push(snap);
   saveHistDB(snap).catch(console.warn);

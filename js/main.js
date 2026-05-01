@@ -264,13 +264,16 @@ async function delSvcDB(sid){
 
 async function saveExt(e){
   try {
-    const {data} = await supa.from('extras').insert({
+    const payload = {
       user_id: UID, concepto: e.concepto, monto: e.monto,
-      descripcion: e.desc||'', fecha: e.fecha||'',
+      descripcion: e.desc||'',
+      fecha: e.fecha && e.fecha.trim() ? e.fecha : null,
       periodo_idx: S.periodoIdx
-    }).select().single();
+    };
+    const {data, error} = await supa.from('extras').insert(payload).select().single();
+    if(error){ console.error('❌ saveExt error:', error); alert('Error al guardar extra: '+error.message); return; }
     if(data) e.id = data.id;
-  } catch(er){ console.warn('saveExt:', er); }
+  } catch(er){ console.error('❌ saveExt exception:', er); alert('Error al guardar extra: '+(er.message||er)); }
 }
 async function delExtDB(eid){
   try { await supa.from('extras').delete().eq('id', eid); }
@@ -685,18 +688,24 @@ function renderPeriodoNav(){
   const banner = id('close-banner');
   if(banner){
     const esActual = S.periodoIdx === actualIdx;
+    const esPasado = S.periodoIdx < actualIdx;
     // El periodo está "guardado" si hay un snapshot en historial con su label
     const yaGuardado = S.historial && S.historial.some(h => h.periodo === p.lbl);
-    if(esActual && !S.periodoCerrado && !yaGuardado && hoy >= p.ini){
+    // Mostrar banner si:
+    // - Es el periodo actual no guardado, O
+    // - Es un periodo pasado SIN snapshot (recién desbloqueado, esperando re-guardar)
+    const debeMostrar = !yaGuardado && !S.periodoCerrado && hoy >= p.ini && (esActual || esPasado);
+    if(debeMostrar){
       banner.classList.add('show');
       const dias = Math.round((p.fin-hoy)/(1000*60*60*24));
       const titleEl = id('close-title');
-      if(hoy > p.fin){
-        // Sí terminó
+      if(esPasado){
+        if(titleEl) titleEl.textContent = 'Periodo desbloqueado';
+        id('close-sub').textContent = `Edita los datos que necesites y vuelve a guardarlo.`;
+      } else if(hoy > p.fin){
         if(titleEl) titleEl.textContent = 'Periodo terminado';
         id('close-sub').textContent = `El periodo ${lbl} ya terminó. Guárdalo para avanzar.`;
       } else {
-        // Sigue activo, falta para terminar
         if(titleEl) titleEl.textContent = 'Periodo activo';
         id('close-sub').textContent = `Faltan ${dias} día${dias===1?'':'s'} para que termine. Guarda cuando quieras.`;
       }
@@ -827,17 +836,17 @@ function cerrarPeriodo(){
     S.periodosReabiertos = (S.periodosReabiertos||[]).filter(x=>x!==p.lbl);
   }
 
-  // Avanzar al periodo que contiene HOY (no necesariamente +1, podría haberse guardado un periodo viejo)
+  // Avanzar al periodo que contiene HOY solo si estamos cerrando el actual.
+  // Si estamos cerrando un periodo pasado (re-guardado tras desbloquear), quedarse ahí.
   const idxHoy = (typeof calcPeriodoActualIdx === 'function') ? calcPeriodoActualIdx() : -1;
-  if(idxHoy >= 0){
+  const cerrandoActual = (S.periodoIdx === idxHoy);
+  if(cerrandoActual && idxHoy >= 0){
     S.periodoIdx = idxHoy;
-  } else if(S.periodoIdx < PERIODOS.length-1){
-    S.periodoIdx++;
   }
   S.periodoCerrado = false;
-  S.extras=[]; S.movimientos=[];
+  // NO borrar S.extras ni S.movimientos: el filtrado por fecha los separa por periodo,
+  // y borrarlos eliminaría los de OTROS periodos también.
   save();
-  // Mensaje de éxito
   setTimeout(()=>alert('✅ Periodo guardado correctamente'), 100);
   renderAll();
 }

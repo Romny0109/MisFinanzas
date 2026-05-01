@@ -447,14 +447,16 @@ function calcPeriodosDesdeHoy(){
   if(S.modo === 'QUINCENAL'){
     let y = hoy.getFullYear(), m = hoy.getMonth();
     let half = hoy.getDate() <= 15 ? 1 : 2;
-    // Retroceder pero NUNCA antes de fechaInicio
+    // Retroceder pero NUNCA antes de fechaInicio.
+    // Comparamos contra fin del periodo (no ini), porque fechaInicio puede caer DENTRO
+    // de un periodo (ej: fechaInicio=19abr, periodo 16-30abr → ese periodo SÍ debe existir).
     const maxRetro = 24; // máximo 24 quincenas atrás (1 año)
     for(let i=0; i<maxRetro; i++){
       let prevHalf = half - 1, prevM = m, prevY = y;
       if(prevHalf < 1){ prevHalf = 2; prevM--; if(prevM < 0){ prevM = 11; prevY--; } }
       const last = new Date(prevY, prevM+1, 0).getDate();
-      const ini = prevHalf===1 ? new Date(prevY, prevM, 1) : new Date(prevY, prevM, 16);
-      if(ini < fechaInicio) break;
+      const fin = prevHalf===1 ? new Date(prevY, prevM, 15) : new Date(prevY, prevM, last);
+      if(fin < fechaInicio) break;
       half = prevHalf; m = prevM; y = prevY;
     }
     for(let i=0; i<totalNecesarios + maxRetro; i++){
@@ -467,12 +469,11 @@ function calcPeriodosDesdeHoy(){
         ini = new Date(y,m,16); fin = new Date(y,m,last);
         lbl = `16-${last} ${MESES[m]} ${y}`;
       }
-      // Solo agregar si está dentro del rango válido (>= fechaInicio)
+      // Solo agregar si fin >= fechaInicio (el periodo termina en o después de la fecha de inicio)
       if(fin >= fechaInicio){
         periodos.push({lbl, ini, fin});
       }
       half++; if(half>2){ half=1; m++; if(m>11){m=0;y++;} }
-      // Para no generar muchos: si ya pasamos suficientes adelante de hoy, parar
       if(periodos.length >= totalNecesarios + 24) break;
     }
   } else {

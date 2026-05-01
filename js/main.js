@@ -187,13 +187,30 @@ async function loadFromSupabase(silencioso=false){
   // HISTORIAL
   try {
     const {data} = await supa.from('historial').select('*').eq('user_id', UID).order('guardado_el');
-    if(data) S.historial = data.map(r=>({
-      id:r.id, periodo:r.periodo, ini:r.ini, fin:r.fin,
-      sueldo:parseFloat(r.sueldo)||0, extras:parseFloat(r.extras)||0,
-      totalPerc:parseFloat(r.total_perc)||0, totalDedu:parseFloat(r.total_dedu)||0,
-      disponible:parseFloat(r.disponible)||0, ahorro:parseFloat(r.ahorro)||0,
-      guardadoEl:r.guardado_el
-    }));
+    if(data) S.historial = data.map(r=>{
+      let desglose = null;
+      if(r.desglose){
+        if(typeof r.desglose === 'string'){
+          try { desglose = JSON.parse(r.desglose); } catch(_){ desglose = null; }
+        } else {
+          desglose = r.desglose; // ya viene como objeto (jsonb)
+        }
+      }
+      return {
+        id:r.id, periodo:r.periodo, ini:r.ini, fin:r.fin,
+        sueldo:parseFloat(r.sueldo)||0, extras:parseFloat(r.extras)||0,
+        totalPerc:parseFloat(r.total_perc)||0, totalDedu:parseFloat(r.total_dedu)||0,
+        disponible:parseFloat(r.disponible)||0, ahorro:parseFloat(r.ahorro)||0,
+        totalSvc: r.total_svc!=null?parseFloat(r.total_svc):undefined,
+        totalDeu: r.total_deu!=null?parseFloat(r.total_deu):undefined,
+        totalMsi: r.total_msi!=null?parseFloat(r.total_msi):undefined,
+        totalMov: r.total_mov!=null?parseFloat(r.total_mov):undefined,
+        totalOtros: r.total_otros!=null?parseFloat(r.total_otros):undefined,
+        desglose,
+        auto: !!r.auto,
+        guardadoEl:r.guardado_el
+      };
+    });
   } catch(e){ console.warn('historial load fail:', e); }
 
   localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
@@ -365,15 +382,36 @@ async function delDeuDB(did){
 
 async function saveHistDB(h){
   try {
-    const {data} = await supa.from('historial').insert({
+    const payload = {
       user_id: UID, periodo: h.periodo, ini: h.ini, fin: h.fin,
       sueldo: h.sueldo, extras: h.extras,
       total_perc: h.totalPerc, total_dedu: h.totalDedu,
       disponible: h.disponible, ahorro: h.ahorro,
+      total_svc: h.totalSvc, total_deu: h.totalDeu,
+      total_msi: h.totalMsi, total_mov: h.totalMov, total_otros: h.totalOtros,
+      desglose: h.desglose ? JSON.stringify(h.desglose) : null,
+      auto: !!h.auto,
       guardado_el: new Date().toISOString()
-    }).select().single();
+    };
+    const {data, error} = await supa.from('historial').insert(payload).select().single();
+    if(error){
+      console.error('❌ saveHistDB error:', error);
+      // Fallback: si falla por columnas inexistentes, intentar solo con las básicas
+      const basico = {
+        user_id: UID, periodo: h.periodo, ini: h.ini, fin: h.fin,
+        sueldo: h.sueldo, extras: h.extras,
+        total_perc: h.totalPerc, total_dedu: h.totalDedu,
+        disponible: h.disponible, ahorro: h.ahorro,
+        guardado_el: new Date().toISOString()
+      };
+      const {data:d2, error:e2} = await supa.from('historial').insert(basico).select().single();
+      if(e2){ console.error('saveHistDB fallback failed:', e2); return; }
+      if(d2) h.id = d2.id;
+      alert('⚠️ Snapshot guardado SIN desglose detallado.\n\nNecesitas correr el SQL "migracion-historial-completo.sql" para guardar el desglose. Avísame.');
+      return;
+    }
     if(data) h.id = data.id;
-  } catch(e){ console.warn('saveHistDB:', e); }
+  } catch(e){ console.error('❌ saveHistDB exception:', e); }
 }
 
 // ═══════════════════════════════════════════════════════

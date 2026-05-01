@@ -184,7 +184,8 @@ async function loadFromSupabase(silencioso=false){
     }));
   } catch(e){ console.warn('deudas load fail:', e); }
 
-  // HISTORIAL
+  // HISTORIAL — reset y cargar de BD (única fuente de verdad)
+  S.historial = [];
   try {
     const {data} = await supa.from('historial').select('*').eq('user_id', UID).order('guardado_el');
     if(data) S.historial = data.map(r=>{

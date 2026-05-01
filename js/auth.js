@@ -111,17 +111,25 @@ function cerrarSesion(){
 
 async function cargarDatosUsuario(){
   PERIODOS = calcPeriodosDesdeHoy();
-  // Cargar caché local solo como fallback temporal
-  const cache = localStorage.getItem('finanzas_'+UID);
-  S = JSON.parse(cache||'null') || {...DEF};
+  // SIEMPRE empezamos con un estado LIMPIO (no del cache).
+  // El cache solo se usa como fallback offline si Supabase falla.
+  S = {...DEF};
   if(!S.otrosGastos) S.otrosGastos = [];
   if(!S.tema) S.tema = 'clasico';
   if(!S.secciones) S.secciones = {principal:true,servicios:true,extras:true,tdc:true,msi:true,deudas:true,otros:true,ahorro:true};
   if(!S.sueldoPorPeriodo) S.sueldoPorPeriodo = {};
-  // SIEMPRE cargar desde Supabase — es la fuente de verdad
+  // SIEMPRE cargar desde Supabase — es la única fuente de verdad
   try {
     await loadFromSupabase(false);
-  } catch(e){ console.warn('Supabase load failed, usando caché:', e); }
+  } catch(e){
+    console.warn('Supabase load failed, usando caché de respaldo:', e);
+    // Solo si Supabase falla totalmente, recurrir al cache local como último recurso
+    const cache = localStorage.getItem('finanzas_'+UID);
+    if(cache){
+      try { S = {...DEF, ...JSON.parse(cache)}; }
+      catch(_){ /* ignore */ }
+    }
+  }
   // Aplicar tema y secciones con datos de Supabase
   if(!S.otrosGastos) S.otrosGastos = [];
   if(!S.secciones) S.secciones = {principal:true,servicios:true,extras:true,tdc:true,msi:true,deudas:true,otros:true,ahorro:true};

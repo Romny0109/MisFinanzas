@@ -113,7 +113,9 @@ async function loadFromSupabase(silencioso=false){
       proxPago:r.prox_pago||'',
       freqSvc: r.freq_svc || 'MENSUAL',
       diaSemana: r.dia_semana || '',
-      periodoAgregadoLbl: r.periodo_agregado_lbl || ''
+      periodoAgregadoLbl: r.periodo_agregado_lbl || '',
+      // v3.50.2: soft-delete
+      fechaEliminado: r.fecha_eliminado || null
     }));
   } catch(e){ console.warn('servicios load fail:', e); }
 
@@ -137,7 +139,9 @@ async function loadFromSupabase(silencioso=false){
     const {data} = await supa.from('tarjetas').select('*').eq('user_id', UID).order('created_at');
     if(data) S.tarjetas = data.map(r=>({
       id:r.id, nombre:r.nombre, corte:r.corte||5,
-      pago:r.pago||25, modo:r.modo||'DÍA DEL MES', color:r.color||'tdc-b'
+      pago:r.pago||25, modo:r.modo||'DÍA DEL MES', color:r.color||'tdc-b',
+      // v3.50.2: soft-delete
+      fechaEliminado: r.fecha_eliminado || null
     }));
   } catch(e){ console.warn('tarjetas load fail:', e); }
 
@@ -152,7 +156,9 @@ async function loadFromSupabase(silencioso=false){
       .map(r=>({
         id:r.id, tarjeta:r.tarjeta, concepto:r.concepto,
         monto:parseFloat(r.monto), fecha:r.fecha||'',
-        incluir:r.incluir||'SI', periodo_idx:r.periodo_idx
+        incluir:r.incluir||'SI', periodo_idx:r.periodo_idx,
+        // v3.50.2: soft-delete (cascada cuando se borra la tarjeta padre)
+        fechaEliminado: r.fecha_eliminado || null
       }));
   } catch(e){ console.warn('movimientos load fail:', e); }
 
@@ -165,7 +171,9 @@ async function loadFromSupabase(silencioso=false){
       pago:parseFloat(r.pago)||0, incluir:r.incluir||'SI',
       pagoActual:r.pago_actual||1, saldoPendiente:parseFloat(r.saldo_pendiente)||0,
       fechaCompra: r.fecha_compra || '',
-      fechaAgregado: r.fecha_agregado || r.fecha_compra || todayStr()
+      fechaAgregado: r.fecha_agregado || r.fecha_compra || todayStr(),
+      // v3.50.2: soft-delete
+      fechaEliminado: r.fecha_eliminado || null
     }));
   } catch(e){ console.warn('msis load fail:', e); }
 
@@ -276,8 +284,12 @@ async function saveSvc(s){
   } catch(e){ console.warn('saveSvc:', e); }
 }
 async function delSvcDB(sid){
-  try { await supa.from('servicios').delete().eq('id', sid); }
-  catch(e){ console.warn('delSvcDB:', e); }
+  // v3.50.2: soft-delete — marcar fecha_eliminado = HOY en lugar de DELETE.
+  // Esto preserva la fotografía pasada (renderS de periodos anteriores siguen viéndolo).
+  try {
+    const hoyStr = todayStr();
+    await supa.from('servicios').update({fecha_eliminado: hoyStr}).eq('id', sid);
+  } catch(e){ console.warn('delSvcDB:', e); }
 }
 
 async function saveExt(e){
@@ -308,8 +320,11 @@ async function saveTar(t){
   } catch(e){ console.warn('saveTar:', e); }
 }
 async function delTarDB(tid){
-  try { await supa.from('tarjetas').delete().eq('id', tid); }
-  catch(e){ console.warn('delTarDB:', e); }
+  // v3.50.2: soft-delete — preserva fotografía pasada
+  try {
+    const hoyStr = todayStr();
+    await supa.from('tarjetas').update({fecha_eliminado: hoyStr}).eq('id', tid);
+  } catch(e){ console.warn('delTarDB:', e); }
 }
 
 async function saveMov(m){
@@ -350,8 +365,11 @@ async function saveMsiDB(m){
   } catch(e){ console.warn('saveMsiDB:', e); }
 }
 async function delMsiDB(mid){
-  try { await supa.from('msis').delete().eq('id', mid); }
-  catch(e){ console.warn('delMsiDB:', e); }
+  // v3.50.2: soft-delete — preserva fotografía pasada
+  try {
+    const hoyStr = todayStr();
+    await supa.from('msis').update({fecha_eliminado: hoyStr}).eq('id', mid);
+  } catch(e){ console.warn('delMsiDB:', e); }
 }
 async function updateMsiDB(m){
   if(!m.id) return;
@@ -512,6 +530,43 @@ function calcPeriodosDesdeHoy(){
 let PERIODOS = calcPeriodosDesdeHoy();
 
 // El periodo actual es siempre el índice 0 ya que generamos desde hoy
+// ═══════════════════════════════════════════════════════
+// v3.50.2 — Soft-delete de tarjetas/MSI/servicios
+// ═══════════════════════════════════════════════════════
+// Items con fecha_eliminado se mantienen en BD pero:
+//  - Son INVISIBLES en periodos cuyo INI > fecha_eliminado.
+//  - Son VISIBLES en periodos pasados (fotografía respetada).
+//
+// Regla precisa: el item se ve en el periodo navegado SI:
+//   item.fechaEliminado es null (no eliminado), O
+//   pIni <= item.fechaEliminado (la eliminación cayó dentro del
+//   periodo o después, así que en este periodo el item aún "vivía")
+function itemVisibleEnPeriodo(item, periodoIdx){
+  if(!item) return false;
+  if(!item.fechaEliminado) return true;
+  const idx = (typeof periodoIdx === 'number') ? periodoIdx : S.periodoIdx;
+  const p = PERIODOS[idx];
+  if(!p) return true;
+  const pIni = new Date(p.ini); pIni.setHours(0,0,0,0);
+  const fEli = new Date(item.fechaEliminado+'T12:00:00'); fEli.setHours(0,0,0,0);
+  // El item se ve si la eliminación cayó EN o DESPUÉS del inicio del periodo.
+  return pIni <= fEli;
+}
+
+// Versión específica para arrays (helper conveniente)
+function tarjetasVisibles(){ return S.tarjetas.filter(t => itemVisibleEnPeriodo(t)); }
+function msisVisibles(){ return S.msis.filter(m => itemVisibleEnPeriodo(m)); }
+function serviciosVisibles(){ return S.servicios.filter(s => itemVisibleEnPeriodo(s)); }
+
+// "Activo HOY" = no eliminado o eliminación futura (para dropdowns de selección)
+function itemActivoHoy(item){
+  if(!item) return false;
+  if(!item.fechaEliminado) return true;
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const fEli = new Date(item.fechaEliminado+'T12:00:00'); fEli.setHours(0,0,0,0);
+  return hoy < fEli; // si hoy ya es >= eliminación → ya no está activo
+}
+
 function calcPeriodoActualIdx(){
   const hoy = new Date(); hoy.setHours(0,0,0,0);
   for(let i=0; i<PERIODOS.length; i++){
@@ -1925,7 +1980,8 @@ function calcSvcEnPeriodo(s){
 }
 
 function calcTotalSvc(){
-  return S.servicios.reduce((a,s)=>{
+  // v3.50.2: respetar soft-delete
+  return S.servicios.filter(s => itemVisibleEnPeriodo(s)).reduce((a,s)=>{
     const calc = calcSvcEnPeriodo(s);
     return a + (calc ? calc.pagoQuincena : 0);
   },0);
@@ -1939,7 +1995,7 @@ function extrasDelPeriodoActual(){
   const pFin = new Date(p.fin); pFin.setHours(0,0,0,0);
   return S.extras.filter(e => {
     if(e.fecha){
-      const f = new Date(e.fecha+'T12:00:00');
+      const f = new Date(e.fecha+'T12:00:00'); f.setHours(0,0,0,0);
       return f >= pIni && f <= pFin;
     }
     // Sin fecha: usar periodo_idx como fallback solo si existe
@@ -1954,9 +2010,10 @@ function calcTotalExtras(){ return extrasDelPeriodoActual().reduce((a,e)=>a+e.mo
 
 // MSI: pago mensual ÷ quincenas desde HOY. Solo los míos van a deducciones.
 function calcTotalMsi(){
-  return S.msis.filter(m=>m.incluir==='SI').reduce((a,m)=>{
+  // v3.50.2: respetar soft-delete (de MSI y de la tarjeta padre)
+  return S.msis.filter(m=>m.incluir==='SI' && itemVisibleEnPeriodo(m)).reduce((a,m)=>{
     const tar = S.tarjetas.find(t=>t.nombre===m.tarjeta);
-    if(!tar) return a;
+    if(!tar || !itemVisibleEnPeriodo(tar)) return a;
     const n = quincenasMsiDesdeHoy(tar, m.fechaCompra, m.fechaAgregado);
     const pagoMensual = (m.monto||0)/(m.plazo||1);
     return a + pagoMensual/n;
@@ -1988,7 +2045,8 @@ function calcInfoTarjetaEnPeriodo(tar){
   if(!cv) return null;
 
   // Movimientos del ciclo visible
-  const movsTodos = S.movimientos.filter(m => m.tarjeta === tar.nombre && movPerteneceAlCicloVisible(tar, m.fecha));
+  // v3.50.2: respetar soft-delete (mov o tarjeta padre)
+  const movsTodos = S.movimientos.filter(m => m.tarjeta === tar.nombre && itemVisibleEnPeriodo(m) && movPerteneceAlCicloVisible(tar, m.fecha));
   const totalMio = movsTodos.filter(m => m.incluir === 'SI').reduce((a, m) => a + m.monto, 0);
   const totalNoMio = movsTodos.filter(m => m.incluir === 'NO').reduce((a, m) => a + m.monto, 0);
 
@@ -2066,7 +2124,8 @@ function calcTotalMovPorTarjeta(tar){
 }
 
 function calcTotalMov(){
-  return S.tarjetas.reduce((a,t)=>a+calcTotalMovPorTarjeta(t),0);
+  // v3.50.2: respetar soft-delete de tarjetas
+  return S.tarjetas.filter(t => itemVisibleEnPeriodo(t)).reduce((a,t)=>a+calcTotalMovPorTarjeta(t),0);
 }
 
 function calcTotalTDC(){ return calcTotalMov() }  // MSI va separado
@@ -2503,8 +2562,10 @@ function renderSvc(){
     list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin servicios — agrega el primero</div>';
     id('tot-svc').textContent='$0.00'; return;
   }
+  // v3.50.2: respetar soft-delete
+  const serviciosVis = S.servicios.filter(s => itemVisibleEnPeriodo(s));
   // Filtrar servicios que no aplican a este periodo (creados en periodo posterior)
-  const visibles = S.servicios.map((s,i)=>({s,i,calc:calcSvcEnPeriodo(s)})).filter(o=>o.calc!==null);
+  const visibles = serviciosVis.map(s=>({s, i:S.servicios.indexOf(s), calc:calcSvcEnPeriodo(s)})).filter(o=>o.calc!==null);
   if(!visibles.length){
     list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin servicios activos en este periodo</div>';
     id('tot-svc').textContent='$0.00'; return;
@@ -2598,7 +2659,7 @@ function renderTDC(){
   }
 
   // Actualizar selector de tarjeta en modales
-  const opts = S.tarjetas.map(t=>`<option>${t.nombre}</option>`).join('');
+  const opts = S.tarjetas.filter(itemActivoHoy).map(t=>`<option>${t.nombre}</option>`).join('');
   id('mov-tar').innerHTML = opts||'<option>Sin tarjetas</option>';
   id('msi-tar').innerHTML = opts||'<option>Sin tarjetas</option>';
 
@@ -3082,19 +3143,22 @@ async function guardarSvc(){
   closeModal('m-svc'); window.renderSvc(); renderPrincipal();
 }
 async function delSvc(i){
-  if(confirm('¿Eliminar este servicio?')){
+  if(confirm('¿Eliminar este servicio?\n\n(Los periodos pasados conservan la foto; en el periodo actual y futuros desaparecerá.)')){
+    // v3.50.2: soft-delete — preserva fotografía pasada
     const svc=S.servicios[i];
+    if(!svc) return;
+    const hoyStr = todayStr();
+    svc.fechaEliminado = hoyStr;
     try {
       if(svc.id){
-        await supa.from('servicios').delete().eq('id', svc.id);
+        await supa.from('servicios').update({fecha_eliminado: hoyStr}).eq('id', svc.id);
       } else {
-        // Borrar la más reciente con mismo concepto
+        // Marcar la más reciente con mismo concepto
         const {data} = await supa.from('servicios').select('id')
           .eq('user_id', UID).eq('concepto', svc.concepto).limit(1);
-        if(data && data[0]) await supa.from('servicios').delete().eq('id', data[0].id);
+        if(data && data[0]) await supa.from('servicios').update({fecha_eliminado: hoyStr}).eq('id', data[0].id);
       }
     } catch(e){ console.error('delSvc error:', e); }
-    S.servicios.splice(i,1);
     localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
     window.renderSvc(); renderPrincipal();
   }
@@ -3170,7 +3234,7 @@ window.abrirAgregarMov = function(){
   const sel = document.getElementById('mov-tar');
   if(sel){
     sel.innerHTML = '<option value="" disabled selected>Selecciona una tarjeta...</option>'
-      + S.tarjetas.map(t => `<option value="${t.nombre}">${t.nombre}</option>`).join('');
+      + S.tarjetas.filter(itemActivoHoy).map(t => `<option value="${t.nombre}">${t.nombre}</option>`).join('');
   }
   openModal('m-mov');
   setTimeout(()=>{
@@ -3351,7 +3415,7 @@ window.abrirAgregarMsi = function(){
   const sel = document.getElementById('msi-tar');
   if(sel){
     sel.innerHTML = '<option value="" disabled selected>Selecciona una tarjeta...</option>'
-      + S.tarjetas.map(t => `<option value="${t.nombre}">${t.nombre}</option>`).join('');
+      + S.tarjetas.filter(itemActivoHoy).map(t => `<option value="${t.nombre}">${t.nombre}</option>`).join('');
   }
   openModal('m-msi');
   setTimeout(()=>{
@@ -3454,9 +3518,14 @@ function toggleMsi(i){
   save(); window.renderTDC(); renderPrincipal();
 }
 function delMsi(i){
+  // v3.50.2: soft-delete — el MSI queda en BD con fecha_eliminado = HOY.
+  // Periodos pasados (foto) lo siguen viendo; periodos actual/futuros no.
   const msi=S.msis[i];
+  if(!msi) return;
+  const hoyStr = todayStr();
+  msi.fechaEliminado = hoyStr;
   if(msi.id) delMsiDB(msi.id).catch(console.warn);
-  S.msis.splice(i,1); save(); window.renderTDC(); renderPrincipal();
+  save(); window.renderTDC(); renderPrincipal();
 }
 
 // TARJETAS
@@ -3464,6 +3533,17 @@ function guardarTar(){
   const n=id('tar-n').value.trim(), c=parseInt(id('tar-c').value)||5, p=parseInt(id('tar-p').value)||25;
   const modo=id('tar-modo').value, col=id('tar-col').value;
   if(!n){alert('Nombre requerido');return;}
+  // v3.50.2: validar que el nombre no choque con una tarjeta soft-deleted
+  // (sino los movs/MSI viejos se "pegarían" a la nueva tarjeta y romperían la foto)
+  const choque = S.tarjetas.find(t => t.nombre === n);
+  if(choque){
+    if(choque.fechaEliminado){
+      alert(`⚠️ Ya existe una tarjeta llamada "${n}" que fue eliminada.\nUsa un nombre distinto (ej: "${n} 2") para no mezclar la información histórica.`);
+    } else {
+      alert(`⚠️ Ya existe una tarjeta activa llamada "${n}".`);
+    }
+    return;
+  }
   const tar={nombre:n,corte:c,pago:p,modo,color:col};
   S.tarjetas.push(tar);
   saveTar(tar).catch(console.warn);
@@ -3472,23 +3552,34 @@ function guardarTar(){
   closeModal('m-tar'); window.renderTDC();
 }
 function delTar(i){
-  if(confirm('¿Eliminar esta tarjeta y TODOS sus movimientos y MSI?')){
+  if(confirm('¿Eliminar esta tarjeta y TODOS sus movimientos y MSI?\n\n(Los periodos pasados conservan la foto; en el periodo actual y futuros desaparecerá.)')){
+    // v3.50.2: soft-delete con cascada.
+    // La tarjeta + sus MSIs + movimientos se marcan con la MISMA fecha_eliminado = HOY.
+    // Esto preserva la fotografía pasada COMPLETA: en periodos donde la tarjeta
+    // existía, los movs y MSIs siguen visibles para que el periodo se vea íntegro.
     const tar=S.tarjetas[i];
+    if(!tar) return;
     const nombre=tar.nombre;
-    // Borrar tarjeta de DB
+    const hoyStr = todayStr();
+    // Tarjeta
+    tar.fechaEliminado = hoyStr;
     if(tar.id) delTarDB(tar.id).catch(console.warn);
-    // Borrar todos los movimientos de esta tarjeta
-    const movsDel = S.movimientos.filter(m=>m.tarjeta===nombre);
-    movsDel.forEach(m=>{ if(m.id) supa.from('movimientos').delete().eq('id',m.id).catch(console.warn); });
-    S.movimientos = S.movimientos.filter(m=>m.tarjeta!==nombre);
-    // Borrar todos los MSI de esta tarjeta
-    const msisDel = S.msis.filter(m=>m.tarjeta===nombre);
-    msisDel.forEach(m=>{ if(m.id) supa.from('msis').delete().eq('id',m.id).catch(console.warn); });
-    S.msis = S.msis.filter(m=>m.tarjeta!==nombre);
-    // Borrar tarjeta del estado
-    S.tarjetas.splice(i,1);
+    // MSIs hijos: soft-delete con misma fecha
+    S.msis.forEach(m => {
+      if(m.tarjeta === nombre){
+        m.fechaEliminado = hoyStr;
+        if(m.id) delMsiDB(m.id).catch(console.warn);
+      }
+    });
+    // Movimientos hijos: soft-delete con misma fecha (preservar foto pasada)
+    S.movimientos.forEach(m => {
+      if(m.tarjeta === nombre){
+        m.fechaEliminado = hoyStr;
+        if(m.id) supa.from('movimientos').update({fecha_eliminado: hoyStr}).eq('id', m.id).then(()=>{}).catch(console.warn);
+      }
+    });
     // Reset filtro si era la tarjeta eliminada
-    if(tdcFiltro===nombre) tdcFiltro='todas';
+    if(typeof tdcFiltro !== 'undefined' && tdcFiltro===nombre) tdcFiltro='todas';
     save(); window.renderTDC(); renderPrincipal();
   }
 }
@@ -4025,12 +4116,15 @@ function updateDates(){
 // BORRADO GLOBAL — funciones onclick directas
 // ═══════════════════════════════════════════════════════
 window.borrarSvc = async function(i){
+  // v3.50.2: soft-delete — preserva fotografía pasada
   const item = S.servicios[i];
-  if(item && item.id){
-    const {error} = await supa.from('servicios').delete().eq('id', item.id);
+  if(!item) return;
+  const hoyStr = todayStr();
+  item.fechaEliminado = hoyStr;
+  if(item.id){
+    const {error} = await supa.from('servicios').update({fecha_eliminado: hoyStr}).eq('id', item.id);
     if(error) console.error('borrarSvc error:', error.message);
   }
-  S.servicios.splice(i,1);
   localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
   window.renderSvc(); renderPrincipal();
 };
@@ -4049,9 +4143,12 @@ window.borrarMov = async function(i){
   window.renderTDC(); renderPrincipal();
 };
 window.borrarMsi = async function(i){
+  // v3.50.2: soft-delete — preserva fotografía pasada
   const item = S.msis[i];
-  if(item && item.id) await supa.from('msis').delete().eq('id', item.id);
-  S.msis.splice(i,1);
+  if(!item) return;
+  const hoyStr = todayStr();
+  item.fechaEliminado = hoyStr;
+  if(item.id) await supa.from('msis').update({fecha_eliminado: hoyStr}).eq('id', item.id);
   localStorage.setItem('finanzas_'+UID, JSON.stringify(S));
   window.renderTDC(); renderPrincipal();
 };
@@ -4141,12 +4238,14 @@ const _origRenderSvc = renderSvc;
 window.renderSvc = function(){
   const list = id('svc-list');
   const label = S.modo==='QUINCENAL'?'quincena':'semana';
-  if(!S.servicios.length){
+  // v3.50.2: respetar soft-delete
+  const serviciosVis = S.servicios.filter(s => itemVisibleEnPeriodo(s));
+  if(!serviciosVis.length){
     list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin servicios — agrega el primero</div>';
     id('tot-svc').textContent='$0.00'; return;
   }
   // Filtrar servicios que no aplican a este periodo (creados en periodo posterior)
-  const visibles = S.servicios.map((s,i)=>({s,i,calc:calcSvcEnPeriodo(s)})).filter(o=>o.calc!==null);
+  const visibles = serviciosVis.map(s=>({s, i:S.servicios.indexOf(s), calc:calcSvcEnPeriodo(s)})).filter(o=>o.calc!==null);
   if(!visibles.length){
     list.innerHTML='<div class="empty"><div class="empty-icon">—</div>Sin servicios activos en este periodo</div>';
     id('tot-svc').textContent='$0.00'; return;
@@ -4221,11 +4320,15 @@ window.renderTDC = function(){
   const cardsEl = id('tdc-cards-list');
   const hoy = new Date(); hoy.setHours(0,0,0,0);
 
-  if(!S.tarjetas.length){
+  // v3.50.2: respetar soft-delete de tarjetas
+  const tarjetasVis = S.tarjetas.filter(t => itemVisibleEnPeriodo(t));
+
+  if(!tarjetasVis.length){
     cardsEl.innerHTML='<div class="empty" style="margin-bottom:12px"><div class="empty-icon">—</div>Sin tarjetas — agrega la primera</div>';
     if(id('tdc-filtro-tabs')) id('tdc-filtro-tabs').innerHTML='';
   } else {
-    cardsEl.innerHTML = S.tarjetas.map((t,i)=>{
+    cardsEl.innerHTML = tarjetasVis.map(t=>{
+      const i = S.tarjetas.indexOf(t);
       const cicloAct = cicloActualTarjeta(t); // ciclo activo desde HOY (para label superior)
       const cicloVis = cicloVisibleEnPeriodo(t); // ciclo visible respetando 3 condiciones
       const limpiar = debenLimpiarse(t);
@@ -4235,12 +4338,12 @@ window.renderTDC = function(){
       const fmtLimAct = cicloAct.limite.toLocaleDateString('es-MX',{day:'2-digit',month:'short'});
       const diasPago = Math.max(0,Math.round((cicloAct.limite-hoy)/(1000*60*60*24)));
       const nCobros = Math.max(1, contarDiasCobro(cicloAct.limiteStr));
-      // Movimientos del ciclo visible
-      const movsTar = standby ? [] : S.movimientos.filter(m=>m.tarjeta===t.nombre && movPerteneceAlCicloVisible(t,m.fecha));
+      // Movimientos del ciclo visible — respetar soft-delete (mov o cascada de tarjeta)
+      const movsTar = standby ? [] : S.movimientos.filter(m=>m.tarjeta===t.nombre && itemVisibleEnPeriodo(m) && movPerteneceAlCicloVisible(t,m.fecha));
       const totalMovTodo = movsTar.reduce((a,m)=>a+m.monto,0);
       const totalMovMio = movsTar.filter(m=>m.incluir==='SI').reduce((a,m)=>a+m.monto,0);
-      // MSI de esta tarjeta (todos, en tiempo real)
-      const msisTar = S.msis.filter(m=>m.tarjeta===t.nombre);
+      // MSI de esta tarjeta (todos, en tiempo real) — respetando soft-delete del MSI
+      const msisTar = S.msis.filter(m=>m.tarjeta===t.nombre && itemVisibleEnPeriodo(m));
       const totalMsiBrutoMes = msisTar.reduce((a,m)=>a+(m.monto/m.plazo),0);
       const totalMsiMioBrutoMes = msisTar.filter(m=>m.incluir==='SI').reduce((a,m)=>a+(m.monto/m.plazo),0);
       const totalTarjetaBruto = totalMovTodo + totalMsiBrutoMes;
@@ -4267,7 +4370,7 @@ window.renderTDC = function(){
     }).join('');
 
     if(id('tdc-filtro-tabs')){
-      const tabs=[{n:'Todas',v:'todas'},...S.tarjetas.map(t=>({n:t.nombre,v:t.nombre}))];
+      const tabs=[{n:'Todas',v:'todas'},...tarjetasVis.map(t=>({n:t.nombre,v:t.nombre}))];
       id('tdc-filtro-tabs').innerHTML=tabs.map(t=>`
         <button onclick="setTdcFiltro('${t.v}')" style="
           padding:5px 12px;border-radius:20px;cursor:pointer;
@@ -4308,7 +4411,7 @@ window.renderTDC = function(){
     }
   }
 
-  const opts=S.tarjetas.map(t=>`<option>${t.nombre}</option>`).join('');
+  const opts=S.tarjetas.filter(itemActivoHoy).map(t=>`<option>${t.nombre}</option>`).join('');
   id('mov-tar').innerHTML=opts||'<option>Sin tarjetas</option>';
   id('msi-tar').innerHTML=opts||'<option>Sin tarjetas</option>';
 
@@ -4318,9 +4421,12 @@ window.renderTDC = function(){
   const esGlobal = tdcFiltro==='todas';
 
   // Filtrar movimientos visibles del ciclo, excluyendo tarjetas en stand-by
+  // v3.50.2: respetar soft-delete del mov y de la tarjeta padre
   const movVisibles = S.movimientos.filter(m=>{
+    if(!itemVisibleEnPeriodo(m)) return false;
     const tar=S.tarjetas.find(t=>t.nombre===m.tarjeta);
     if(!tar) return false;
+    if(!itemVisibleEnPeriodo(tar)) return false;
     if(tarjetaEnStandby(tar)) return false; // ocultar movs de tarjetas en stand-by
     return movPerteneceAlCicloVisible(tar, m.fecha);
   });
@@ -4472,8 +4578,10 @@ window.renderTDC = function(){
   }
 
   const msiVis = S.msis.filter(m=>{
+    if(!itemVisibleEnPeriodo(m)) return false; // v3.50.2: soft-delete
     const tar=S.tarjetas.find(t=>t.nombre===m.tarjeta);
     if(!tar||!m.fechaCompra) return false;
+    if(!itemVisibleEnPeriodo(tar)) return false; // tarjeta soft-deleted
     return findLastLimpioIdx(tar) >= 0;
   }).filter(m=>tdcFiltro==='todas'||m.tarjeta===tdcFiltro);
 
@@ -4670,13 +4778,17 @@ window.renderMsi = function(){
   const hoy = new Date(); hoy.setHours(0,0,0,0);
   const p = PERIODOS[S.periodoIdx];
 
+  // v3.50.2: respetar soft-delete (de MSIs y de tarjetas)
+  const tarjetasVisMsi = S.tarjetas.filter(t => itemVisibleEnPeriodo(t));
+  const msisVis = S.msis.filter(m => itemVisibleEnPeriodo(m));
+
   // ─── Filtro por tarjeta ───
   const filtroTabs = id('msi-filtro-tabs');
   if(filtroTabs){
-    if(S.tarjetas.length === 0){
+    if(tarjetasVisMsi.length === 0){
       filtroTabs.innerHTML = '';
     } else {
-      const tabs = [{n:'Todas',v:'todas'}, ...S.tarjetas.map(t=>({n:t.nombre,v:t.nombre}))];
+      const tabs = [{n:'Todas',v:'todas'}, ...tarjetasVisMsi.map(t=>({n:t.nombre,v:t.nombre}))];
       filtroTabs.innerHTML = tabs.map(t => `
         <button onclick="setMsiFiltro('${t.v}')" style="
           padding:5px 12px;border-radius:20px;cursor:pointer;
@@ -4692,10 +4804,10 @@ window.renderMsi = function(){
   const totalesBox = id('msi-totales-box');
   if(totalesBox){
     let totalMio = 0, totalNoMio = 0;
-    S.msis.forEach(m => {
+    msisVis.forEach(m => {
       if(msiFiltro !== 'todas' && m.tarjeta !== msiFiltro) return;
       const tar = S.tarjetas.find(t => t.nombre === m.tarjeta);
-      if(!tar) return;
+      if(!tar || !itemVisibleEnPeriodo(tar)) return;
       const calc = calcMsiEnPeriodo(m, tar);
       if(!calc) return; // liquidado
       if(m.incluir === 'SI'){
@@ -4719,11 +4831,11 @@ window.renderMsi = function(){
     }
   }
 
-  // Filtrar MSI según el filtro de tarjeta
-  const msiF = msiFiltro === 'todas' ? S.msis : S.msis.filter(m => m.tarjeta === msiFiltro);
+  // Filtrar MSI según el filtro de tarjeta — solo MSIs visibles
+  const msiF = msiFiltro === 'todas' ? msisVis : msisVis.filter(m => m.tarjeta === msiFiltro);
 
   if(!msiF.length){
-    list.innerHTML='<div class="empty"><div class="empty-icon">—</div>'+(S.msis.length===0?'Sin MSI registrados — agrega el primero':'Sin MSI para '+msiFiltro)+'</div>';
+    list.innerHTML='<div class="empty"><div class="empty-icon">—</div>'+(msisVis.length===0?'Sin MSI registrados — agrega el primero':'Sin MSI para '+msiFiltro)+'</div>';
     if(id('tot-msi-section')) id('tot-msi-section').textContent='$0.00';
     return;
   }
@@ -4733,10 +4845,10 @@ window.renderMsi = function(){
     const tar = S.tarjetas.find(t=>t.nombre===m.tarjeta);
     const excl = m.incluir==='NO';
 
-    if(!tar){
-      return `<div class="msi ${excl?'x':''}">
-        <div class="msi-name">${m.concepto} <span style="color:var(--red);font-size:11px">(tarjeta eliminada)</span></div>
-      </div>`;
+    // v3.50.2: si la tarjeta NO existe O fue soft-deleted ANTES del periodo
+    // navegado, simplemente omitir este MSI (sin la leyenda fea).
+    if(!tar || !itemVisibleEnPeriodo(tar)){
+      return '';
     }
 
     const calc = calcMsiEnPeriodo(m, tar);

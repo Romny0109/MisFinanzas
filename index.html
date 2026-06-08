@@ -156,7 +156,7 @@
           <div class="pnav-label" id="pnav-lbl-dt">—</div>
           <button class="pnav-btn pnav-btn-next" onclick="navPeriod(1)" id="btn-next-dt" disabled>›</button>
           <button class="pnav-btn pnav-btn-add" onclick="agregarPeriodo()" title="Agregar periodo futuro" style="font-size:13px;color:var(--green)">+</button>
-          <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" title="Borrar último periodo" style="font-size:13px;color:var(--red)">×</button>
+          <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" title="Borrar último periodo" style="font-size:13px;color:var(--red)">×</button><button class="pnav-btn pnav-btn-trash" onclick="borrarSnapshotPeriodo()" title="Borrar snapshot del periodo navegado" style="font-size:13px;color:var(--amber);display:none">🗑</button>
         </div>
         <div class="modo-pill" style="cursor:default"><span id="modo-lbl-dt">Quincenal</span></div>
       </div>
@@ -168,7 +168,7 @@
       <div class="pnav-label" id="pnav-lbl">—</div>
       <button class="pnav-btn pnav-btn-next" id="btn-next" onclick="navPeriod(1)" disabled>›</button>
       <button class="pnav-btn pnav-btn-add" onclick="agregarPeriodo()" style="font-size:13px;color:var(--green)">+</button>
-      <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button>
+      <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button><button class="pnav-btn pnav-btn-trash" onclick="borrarSnapshotPeriodo()" title="Borrar snapshot del periodo navegado" style="font-size:13px;color:var(--amber);display:none">🗑</button>
       <div class="modo-pill" style="cursor:default">
         <span id="modo-lbl">Quincenal</span>
       </div>
@@ -328,7 +328,7 @@
           <div class="pnav-label" id="pnav-lbl-svc-dt">—</div>
           <button class="pnav-btn pnav-btn-next" onclick="navPeriod(1)">›</button>
           <button class="pnav-btn pnav-btn-add" onclick="agregarPeriodo()" style="font-size:13px;color:var(--green)">+</button>
-          <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button>
+          <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button><button class="pnav-btn pnav-btn-trash" onclick="borrarSnapshotPeriodo()" title="Borrar snapshot del periodo navegado" style="font-size:13px;color:var(--amber);display:none">🗑</button>
         </div>
       </div>
     </div>
@@ -337,7 +337,7 @@
       <div class="pnav-label" id="pnav-lbl-svc">—</div>
       <button class="pnav-btn pnav-btn-next" onclick="navPeriod(1)">›</button>
       <button class="pnav-btn pnav-btn-add" onclick="agregarPeriodo()" style="font-size:13px;color:var(--green)">+</button>
-      <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button>
+      <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button><button class="pnav-btn pnav-btn-trash" onclick="borrarSnapshotPeriodo()" title="Borrar snapshot del periodo navegado" style="font-size:13px;color:var(--amber);display:none">🗑</button>
     </div>
     <div class="card">
       <div class="card-hdr"><span>Servicios fijos</span>
@@ -363,7 +363,7 @@
       <div class="pnav-label" id="pnav-lbl-ext">—</div>
       <button class="pnav-btn pnav-btn-next" onclick="navPeriod(1)">›</button>
       <button class="pnav-btn pnav-btn-add" onclick="agregarPeriodo()" style="font-size:13px;color:var(--green)">+</button>
-      <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button>
+      <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button><button class="pnav-btn pnav-btn-trash" onclick="borrarSnapshotPeriodo()" title="Borrar snapshot del periodo navegado" style="font-size:13px;color:var(--amber);display:none">🗑</button>
     </div>
     <div class="card">
       <div class="card-hdr"><span>Ingresos extra</span>
@@ -389,7 +389,7 @@
       <div class="pnav-label" id="pnav-lbl-tdc">—</div>
       <button class="pnav-btn pnav-btn-next" onclick="navPeriod(1)">›</button>
       <button class="pnav-btn pnav-btn-add" onclick="agregarPeriodo()" style="font-size:13px;color:var(--green)">+</button>
-      <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button>
+      <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button><button class="pnav-btn pnav-btn-trash" onclick="borrarSnapshotPeriodo()" title="Borrar snapshot del periodo navegado" style="font-size:13px;color:var(--amber);display:none">🗑</button>
     </div>
     <div id="tdc-cards-list"></div>
     <button class="btn btn-g" style="width:100%;margin-bottom:12px" onclick="openModal('m-tar')">+ Agregar tarjeta</button>
@@ -430,7 +430,7 @@
           <div class="pnav-label" id="pnav-lbl-msi">—</div>
           <button class="pnav-btn pnav-btn-next" onclick="navPeriod(1)">›</button>
           <button class="pnav-btn pnav-btn-add" onclick="agregarPeriodo()" style="font-size:13px;color:var(--green)">+</button>
-          <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button>
+          <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button><button class="pnav-btn pnav-btn-trash" onclick="borrarSnapshotPeriodo()" title="Borrar snapshot del periodo navegado" style="font-size:13px;color:var(--amber);display:none">🗑</button>
         </div>
       </div>
     </div>
@@ -439,7 +439,7 @@
       <div class="pnav-label" id="pnav-lbl-msi-m">—</div>
       <button class="pnav-btn pnav-btn-next" onclick="navPeriod(1)">›</button>
       <button class="pnav-btn pnav-btn-add" onclick="agregarPeriodo()" style="font-size:13px;color:var(--green)">+</button>
-      <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button>
+      <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button><button class="pnav-btn pnav-btn-trash" onclick="borrarSnapshotPeriodo()" title="Borrar snapshot del periodo navegado" style="font-size:13px;color:var(--amber);display:none">🗑</button>
     </div>
     <div class="card">
       <div class="card-hdr">
@@ -470,7 +470,7 @@
           <div class="pnav-label" id="pnav-lbl-deu">—</div>
           <button class="pnav-btn pnav-btn-next" onclick="navPeriod(1)" id="btn-next-deu">›</button>
           <button class="pnav-btn pnav-btn-add" onclick="agregarPeriodo()" style="font-size:13px;color:var(--green)">+</button>
-          <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button>
+          <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button><button class="pnav-btn pnav-btn-trash" onclick="borrarSnapshotPeriodo()" title="Borrar snapshot del periodo navegado" style="font-size:13px;color:var(--amber);display:none">🗑</button>
         </div>
       </div>
     </div>
@@ -479,7 +479,7 @@
       <div class="pnav-label" id="pnav-lbl-deudas">—</div>
       <button class="pnav-btn pnav-btn-next" onclick="navPeriod(1)">›</button>
       <button class="pnav-btn pnav-btn-add" onclick="agregarPeriodo()" style="font-size:13px;color:var(--green)">+</button>
-      <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button>
+      <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button><button class="pnav-btn pnav-btn-trash" onclick="borrarSnapshotPeriodo()" title="Borrar snapshot del periodo navegado" style="font-size:13px;color:var(--amber);display:none">🗑</button>
     </div>
     <div class="card">
       <div class="card-hdr"><span>Deudas fijas</span>

@@ -621,14 +621,26 @@ function goTab(tabId, btn){
   if(scr) scr.classList.add('on');
   if(btn) btn.classList.add('on');
   // Update desktop topbar title
-  const names={principal:'Principal',servicios:'Servicios',extras:'Extras',tdc:'TDC',msi:'MSI',deudas:'Deudas',otros:'Otros Gastos',ahorro:'Ahorro'};
+  const names={principal:'Principal',servicios:'Servicios',extras:'Extras',tdc:'TDC',msi:'MSI',deudas:'Deudas',otros:'Otros Gastos',ahorro:'Ahorro',divisas:'Divisas'};
   if(id('dt-section-name')) id('dt-section-name').textContent = names[tabId]||tabId;
   renderAll();
 }
+// v3.51: Sincroniza pestañas top + sidebar al navegar via hipervínculo.
+// Antes usaba un mapa fijo de índices que estaba desincronizado con el HTML real.
 function goTabBtn(tabId){
-  const btns = document.querySelectorAll('.tab');
-  const map = {principal:0,servicios:1,extras:2,tdc:3,msi:4,deudas:5,otros:6,ahorro:7};
-  goTab(tabId, btns[map[tabId]]);
+  // Encontrar el botón top exacto por su atributo data o por su onclick
+  const allTopTabs = document.querySelectorAll('.tab');
+  let topBtn = null;
+  allTopTabs.forEach(b => {
+    const oc = b.getAttribute('onclick') || '';
+    if(oc.includes(`'${tabId}'`)) topBtn = b;
+  });
+  goTab(tabId, topBtn);
+
+  // También actualizar la pestaña activa en la sidebar (.sb-tab)
+  document.querySelectorAll('.sb-tab').forEach(b => {
+    b.classList.toggle('on', b.getAttribute('data-tab') === tabId);
+  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -725,6 +737,33 @@ function borrarPeriodo(){
   window.renderAll();
 }
 
+// v3.51: Borrar el snapshot guardado del periodo navegado actual.
+// No afecta cálculos en vivo de otros periodos. Solo elimina la "foto"
+// guardada. El periodo queda como si nunca se hubiera cerrado.
+async function borrarSnapshotPeriodo(){
+  const p = PERIODOS[S.periodoIdx];
+  if(!p){ alert('No hay periodo activo'); return; }
+  if(!S.historial || !S.historial.some(h => h.periodo === p.lbl)){
+    alert('Este periodo no tiene snapshot guardado.');
+    return;
+  }
+  if(!confirm(`¿Borrar el snapshot del periodo "${p.lbl}"?\n\nEsto borra la foto guardada en la base de datos. No afecta tus datos actuales ni los de otros periodos.`)) return;
+
+  try {
+    // Borrar de la BD
+    await supa.from('historial').delete().eq('user_id', UID).eq('periodo', p.lbl);
+    // Quitar del estado local
+    S.historial = (S.historial || []).filter(h => h.periodo !== p.lbl);
+    save();
+    window.renderAll();
+    alert(`Snapshot del periodo "${p.lbl}" eliminado.`);
+  } catch(e){
+    console.error('borrarSnapshotPeriodo error:', e);
+    alert('Hubo un error al borrar el snapshot. Revisa la consola.');
+  }
+}
+window.borrarSnapshotPeriodo = borrarSnapshotPeriodo;
+
 function puedeMostrarSiguiente(){
   const actualIdx = calcPeriodoActualIdx();
   return S.periodoIdx <= actualIdx;
@@ -766,6 +805,15 @@ function renderPeriodoNav(){
   document.querySelectorAll('.pnav-btn-del').forEach(b=>{
     b.disabled=!puedeBorrarPeriodo();
     b.title=puedeBorrarPeriodo()?'Borrar último periodo':'Mínimo 4 periodos futuros';
+  });
+
+  // v3.51: botón "trash" — borrar snapshot del periodo navegado.
+  // Solo visible si el periodo navegado tiene snapshot en S.historial
+  // (es un periodo PASADO ya guardado).
+  const tieneSnap = !!(S.historial && p && S.historial.some(h=>h.periodo===p.lbl));
+  document.querySelectorAll('.pnav-btn-trash').forEach(b=>{
+    b.style.display = tieneSnap ? '' : 'none';
+    b.title = 'Borrar snapshot guardado de este periodo';
   });
 
   // Modo labels

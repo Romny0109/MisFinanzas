@@ -177,28 +177,65 @@ async function loginLocal(){
   UID = userRow.id;
   localStorage.setItem('mf_session', userRow.id);
   registrarSessionListeners();
+  iniciarTimersGlobales();
   mostrarApp();
   cargarDatosUsuario();
 }
 
+let _inactivityTimer = null;
+let _sessionListenersRegistrados = false;
+let _timersGlobalesIniciados = false;
+
+function _resetInactivityTimer(){
+  clearTimeout(_inactivityTimer);
+  _inactivityTimer = setTimeout(()=>{
+    if(UID) cerrarSesion();
+  }, 15*60*1000);
+}
+
 function registrarSessionListeners(){
-  // Inactividad — cerrar sesión tras 15 min
-  let inactivityTimer;
-  function resetInactivityTimer(){
-    clearTimeout(inactivityTimer);
-    inactivityTimer = setTimeout(()=>{
-      if(UID) cerrarSesion();
-    }, 15*60*1000);
+  // Inactividad — cerrar sesión tras 15 min (evita duplicar listeners)
+  if(!_sessionListenersRegistrados){
+    ['click','keydown','touchstart','mousemove','scroll'].forEach(evt=>{
+      document.addEventListener(evt, _resetInactivityTimer, {passive:true});
+    });
+    _sessionListenersRegistrados = true;
   }
-  ['click','keydown','touchstart','mousemove','scroll'].forEach(evt=>{
-    document.addEventListener(evt, resetInactivityTimer, {passive:true});
-  });
-  resetInactivityTimer();
+  _resetInactivityTimer();
+}
+
+function iniciarTimersGlobales(){
+  if(_timersGlobalesIniciados) return;
+  _timersGlobalesIniciados = true;
+  // Autosave a Supabase cada 10s
+  setInterval(()=>{ if(UID) saveConfigDB().catch(console.warn); }, 10000);
+  // Timer cambio de periodo cada 60s
+  setInterval(()=>{
+    if(!UID) return;
+    updateDates();
+    const p = PERIODOS[S.periodoIdx];
+    const hoy = new Date(); hoy.setHours(0,0,0,0);
+    if(p && hoy > p.fin && !S.historial.some(h=>h.periodo===p.lbl)){
+      S.historial.push(crearSnapshot(true));
+      S.periodoIdx=0; PERIODOS=calcPeriodosDesdeHoy();
+      S.ultimoPeriodoLabel=PERIODOS[0]?PERIODOS[0].lbl:'';
+      save(); renderAll();
+    }
+  }, 60000);
 }
 
 function cerrarSesion(){
   CURRENT_USER = null; UID = null;
+  clearTimeout(_inactivityTimer);
   localStorage.removeItem('mf_session');
+  // Limpiar estado en memoria para evitar fugas entre sesiones
+  if(typeof DEF !== 'undefined'){
+    S = JSON.parse(JSON.stringify(DEF));
+  }
+  if(typeof DIVISAS_MOVS !== 'undefined') DIVISAS_MOVS = [];
+  if(typeof _notifEstado !== 'undefined') _notifEstado = {};
+  if(typeof _notifCacheLista !== 'undefined') _notifCacheLista = [];
+  if(typeof periodosExtra !== 'undefined') periodosExtra = 0;
   aplicarTema('clasico');
   document.documentElement.classList.remove('font-sz-1','font-sz-2','font-sz-3','font-sz-4');
   mostrarPantallaLogin();
@@ -472,25 +509,9 @@ function abrirAdmin(){
         };
         UID = userRow.id;
         registrarSessionListeners();
+        iniciarTimersGlobales();
         mostrarApp();
         cargarDatosUsuario();
-
-        // Autosave a Supabase cada 10s
-        setInterval(()=>{ if(UID) saveConfigDB().catch(console.warn); }, 10000);
-        // Timer cambio de periodo
-        setInterval(()=>{
-          updateDates();
-          const p = PERIODOS[S.periodoIdx];
-          const hoy = new Date(); hoy.setHours(0,0,0,0);
-          if(p && hoy > p.fin && !S.historial.some(h=>h.periodo===p.lbl)){
-            S.historial.push(crearSnapshot(true));
-            S.extras=[]; S.movimientos=[];
-            S.periodoIdx=0; PERIODOS=calcPeriodosDesdeHoy();
-            S.ultimoPeriodoLabel=PERIODOS[0]?PERIODOS[0].lbl:'';
-            save(); renderAll();
-          }
-        }, 60000);
-
         return;
       }
     } catch(e){

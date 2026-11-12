@@ -2171,13 +2171,13 @@ function calcTotalExtras(){ return extrasDelPeriodoActual().reduce((a,e)=>a+e.mo
 
 // MSI: pago mensual ÷ quincenas desde HOY. Solo los míos van a deducciones.
 function calcTotalMsi(){
-  // v3.50.2: respetar soft-delete (de MSI y de la tarjeta padre)
+  // v3.50.2: respetar soft-delete y usar calcMsiEnPeriodo para cuadrar con el periodo navegado
   return S.msis.filter(m=>m.incluir==='SI' && itemVisibleEnPeriodo(m)).reduce((a,m)=>{
     const tar = S.tarjetas.find(t=>t.nombre===m.tarjeta);
     if(!tar || !itemVisibleEnPeriodo(tar)) return a;
-    const n = quincenasMsiDesdeHoy(tar, m.fechaCompra, m.fechaAgregado);
-    const pagoMensual = (m.monto||0)/(m.plazo||1);
-    return a + pagoMensual/n;
+    const calc = calcMsiEnPeriodo(m, tar);
+    if(!calc) return a;
+    return a + calc.pagoQuincena;
   },0);
 }
 
@@ -3088,7 +3088,7 @@ function bloquearSiSnapshot(){
     b.style.pointerEvents = bloqueado ? 'none' : '';
   });
   // Sueldo input
-  const sueldoInput = id('sueldo-input');
+  const sueldoInput = id('inp-sueldo');
   if(sueldoInput) sueldoInput.readOnly = bloqueado;
 }
 
@@ -4296,13 +4296,11 @@ function onAhoFijoChange(){
 // SIDEBAR DESKTOP
 // ═══════════════════════════════════════════════════════
 function goSidebar(tabId, btn){
-  goTab(tabId, null);
-  document.querySelectorAll('.sb-tab').forEach(b=>b.classList.remove('on'));
-  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('on'));
-  if(btn) btn.classList.add('on');
-  const tabMap={principal:0,servicios:1,extras:2,tdc:3,msi:4,deudas:5,otros:6,ahorro:7};
-  const mTabs=document.querySelectorAll('.tab');
-  if(mTabs[tabMap[tabId]]) mTabs[tabMap[tabId]].classList.add('on');
+  goTabBtn(tabId);
+  if(btn){
+    document.querySelectorAll('.sb-tab').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+  }
   // Show desktop topbar for current screen — solo en desktop
   document.querySelectorAll('.desktop-topbar').forEach(t=>t.style.display='none');
   setTimeout(()=>{
@@ -4939,16 +4937,20 @@ window.renderAll = function(){
 // ═══════════════════════════════════════════════════════
 function aplicarBloqueoPeriodo(){
   const bloq = isPeriodoBloqueado();
-  // Botones de agregar (.add-btn)
-  document.querySelectorAll('.add-btn').forEach(b=>{
+  // Botones de agregar (.add-btn) y agregar tarjeta
+  document.querySelectorAll('.add-btn, [onclick*="openModal(\'m-tar\')"]').forEach(b=>{
     b.disabled = bloq;
     b.style.opacity = bloq ? '0.4' : '';
     b.style.cursor = bloq ? 'not-allowed' : '';
     b.style.pointerEvents = bloq ? 'none' : '';
   });
-  // Botones eliminar individual (×)
-  document.querySelectorAll('.ch-del').forEach(b=>{
+  // Botones eliminar individual (×) y acciones de listas
+  document.querySelectorAll('.ch-del, .btn-danger').forEach(b=>{
     b.style.display = bloq ? 'none' : '';
+  });
+  document.querySelectorAll('[onclick*="toggleMov"], [onclick*="toggleMsi"], [onclick*="toggleOtroFijo"]').forEach(b=>{
+    b.style.pointerEvents = bloq ? 'none' : '';
+    b.style.opacity = bloq ? '0.5' : '';
   });
   // Botones limpiar (los que tienen onclick con "limpiar")
   document.querySelectorAll('[onclick*="limpiar"]').forEach(b=>{
@@ -4958,8 +4960,8 @@ function aplicarBloqueoPeriodo(){
       b.style.display = '';
     }
   });
-  // Inputs de monto/sueldo: bloquear edición
-  ['sueldo-input','aho-input','aho-slider'].forEach(idn=>{
+  // Inputs de monto/sueldo/ahorro con sus IDs reales en index.html
+  ['inp-sueldo','aho-inp','aho-fijo','pct-sl','msw-pct','msw-fix'].forEach(idn=>{
     const el = id(idn);
     if(el){
       el.disabled = bloq;
@@ -4967,15 +4969,17 @@ function aplicarBloqueoPeriodo(){
         el.style.opacity = '0.6';
         el.style.cursor = 'not-allowed';
       } else {
-        el.style.opacity = '';
-        el.style.cursor = '';
+        el.style.opacity = (idn === 'inp-sueldo' && S.sueldoFijo) ? '0.6' : '';
+        el.style.cursor = (idn === 'inp-sueldo' && S.sueldoFijo) ? 'not-allowed' : '';
       }
     }
   });
-  // Toggle sueldo fijo y modo ahorro: bloquear
-  document.querySelectorAll('input[type="checkbox"]').forEach(c=>{
-    if(c.id === 'sueldo-fijo-toggle' || c.id === 'aho-modo-pct' || c.id === 'aho-modo-fijo'){
-      c.disabled = bloq;
+  // Toggle sueldo fijo (en móvil y desktop)
+  ['tog-fijo','tog-fijo-dt'].forEach(idn=>{
+    const el = id(idn);
+    if(el){
+      el.style.pointerEvents = bloq ? 'none' : '';
+      el.style.opacity = bloq ? '0.5' : '';
     }
   });
   // Banner amarillo de "Periodo activo" no debe salir si está bloqueado

@@ -1,6 +1,7 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
   --bg:#0F1117;--bg2:#161B27;--bg3:#1E2535;--bg4:#252D3D;
+  --card:var(--bg2);--card2:var(--bg3);
   --border:#2A3347;--border2:#3A4560;
   --text:#F0F4FF;--text2:#8899BB;--text3:#5A6880;
   --blue:#4F8EF7;--blue-d:#1A3A8A;--blue-l:#DBEAFE;
@@ -23,6 +24,7 @@
 /* ── TEMA OSCURO ─────────────────────────────────── */
 body.theme-oscuro{
   --bg:#000000;--bg2:#0A0A0A;--bg3:#141414;--bg4:#1E1E1E;
+  --card:var(--bg2);--card2:var(--bg3);
   --border:#2A2A2A;--border2:#404040;
   --text:#EDEDED;--text2:#909090;--text3:#585858;
   --in-bg:#0D0D0D;--in-border:#333333;
@@ -37,6 +39,7 @@ body.theme-oscuro{
 /* ── TEMA CLARO ──────────────────────────────────── */
 body.theme-claro{
   --bg:#F4F6F9;--bg2:#FFFFFF;--bg3:#EDF0F5;--bg4:#DFE4EC;
+  --card:var(--bg2);--card2:var(--bg3);
   --border:#CBD5E1;--border2:#94A3B8;
   --text:#0F172A;--text2:#475569;--text3:#94A3B8;
   --blue:#2563EB;--blue-d:#DBEAFE;--blue-l:#1E40AF;
@@ -137,6 +140,7 @@ html,body{font-family:var(--font);background:var(--bg);color:var(--text);min-hei
 .alert-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0}
 .alert.active .alert-dot{animation:blink 2s infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes spin{to{transform:rotate(360deg)}}
 .tabs{display:flex;gap:3px;padding:4px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);overflow-x:auto;scrollbar-width:none;margin:0 16px 14px}
 .tabs::-webkit-scrollbar{display:none}
 .tab{flex-shrink:0;padding:7px 11px;border:none;background:transparent;color:var(--text2);font-family:var(--font);font-size:12px;font-weight:500;border-radius:8px;cursor:pointer;white-space:nowrap;transition:all .2s}
@@ -364,9 +368,9 @@ html.force-mobile .pnav.mobile-only{display:flex!important}
   .disp-extra-item .de-v.blue{color:var(--blue)}
   .disp-extra-item .de-v.green{color:var(--green)}
 
-  /* METRICS — 6 columns, todos en una fila */
+  /* METRICS — 7 columns, todos en una fila */
   .mets{
-    display:grid;grid-template-columns:repeat(6,1fr);
+    display:grid;grid-template-columns:repeat(7,1fr);
     gap:.8vw;flex-shrink:0;margin-bottom:0;
   }
   .met{padding:.9vh 1vw;border-radius:.5vw}

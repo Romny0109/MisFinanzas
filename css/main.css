@@ -379,7 +379,7 @@ html.force-mobile .pnav.mobile-only{display:flex!important}
 
   /* OTHER SCREENS */
   #scr-servicios .card, #scr-extras .card,
-  #scr-tdc .card, #scr-deudas .card, #scr-ahorro .card{
+  #scr-compras .card, #scr-tdc .card, #scr-msi .card, #scr-deudas .card, #scr-ahorro .card{
     padding:1.3vh 1.5vw;border-radius:.6vw;
   }
   .card-hdr{font-size:.9vw;margin-bottom:.9vh;color:var(--text2)}

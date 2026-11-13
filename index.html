@@ -89,6 +89,7 @@
 
   <div class="sb-group-title" data-section-group="deducciones">DEDUCCIONES</div>
   <button class="sb-tab" data-tab="servicios" onclick="goSidebar('servicios',this)"><span class="ti">·</span>Servicios</button>
+  <button class="sb-tab" data-tab="compras" onclick="goSidebar('compras',this)"><span class="ti">·</span>Compras TDC</button>
   <button class="sb-tab" data-tab="tdc" onclick="goSidebar('tdc',this)"><span class="ti">·</span>TDC</button>
   <button class="sb-tab" data-tab="msi" onclick="goSidebar('msi',this)"><span class="ti">·</span>MSI</button>
   <button class="sb-tab" data-tab="deudas" onclick="goSidebar('deudas',this)"><span class="ti">·</span>Deudas</button>
@@ -138,6 +139,7 @@
     <button class="tab" onclick="goTab('extras',this)">Extras</button>
     <button class="tab" onclick="goTab('divisas',this)">Divisas</button>
     <button class="tab" onclick="goTab('servicios',this)">Servicios</button>
+    <button class="tab" onclick="goTab('compras',this)">Compras TDC</button>
     <button class="tab" onclick="goTab('tdc',this)">TDC</button>
     <button class="tab" onclick="goTab('msi',this)">MSI</button>
     <button class="tab" onclick="goTab('deudas',this)">Deudas</button>
@@ -246,7 +248,7 @@
           <div class="row-a neg" id="d-svc">$0.00</div>
         </div>
         <div class="row" data-section="tdc">
-          <div class="row-lnk" onclick="goTabBtn('tdc')">TDC ↗</div>
+          <div class="row-lnk" onclick="goTabBtn('compras')">Compras TDC ↗</div>
           <div class="row-a neg" id="d-tdc">$0.00</div>
         </div>
         <div class="row" data-section="msi">
@@ -378,45 +380,71 @@
     </div>
   </div>
 
-  <!-- ══ TDC ══ -->
-  <div class="scr" id="scr-tdc">
+  <!-- ══ COMPRAS TDC (Quincenal / Semanal) ══ -->
+  <div class="scr" id="scr-compras">
     <div class="desktop-topbar" style="display:none">
-      <div class="dt-title">Tarjetas de Crédito</div>
-      <div class="dt-date" id="dt-date-tdc">—</div>
+      <div class="dt-title">Compras TDC</div>
+      <div class="dt-topright">
+        <div class="pnav">
+          <button class="pnav-btn pnav-btn-prev" onclick="navPeriod(-1)">‹</button>
+          <div class="pnav-label" id="pnav-lbl-comp-dt">—</div>
+          <button class="pnav-btn pnav-btn-next" onclick="navPeriod(1)">›</button>
+          <button class="pnav-btn pnav-btn-add" onclick="agregarPeriodo()" style="font-size:13px;color:var(--green)">+</button>
+          <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button><button class="pnav-btn pnav-btn-trash" onclick="borrarSnapshotPeriodo()" title="Borrar snapshot del periodo navegado" style="font-size:13px;color:var(--amber);display:none">🗑</button>
+        </div>
+      </div>
     </div>
-    <div class="pnav">
+    <div class="pnav mobile-only">
       <button class="pnav-btn pnav-btn-prev" onclick="navPeriod(-1)">‹</button>
-      <div class="pnav-label" id="pnav-lbl-tdc">—</div>
+      <div class="pnav-label" id="pnav-lbl-comp">—</div>
       <button class="pnav-btn pnav-btn-next" onclick="navPeriod(1)">›</button>
       <button class="pnav-btn pnav-btn-add" onclick="agregarPeriodo()" style="font-size:13px;color:var(--green)">+</button>
       <button class="pnav-btn pnav-btn-del" onclick="borrarPeriodo()" style="font-size:13px;color:var(--red)">×</button><button class="pnav-btn pnav-btn-trash" onclick="borrarSnapshotPeriodo()" title="Borrar snapshot del periodo navegado" style="font-size:13px;color:var(--amber);display:none">🗑</button>
+    </div>
+    <div class="card">
+      <div class="card-hdr">
+        <span>🛒 Compras de tarjeta en este periodo</span>
+        <div style="display:flex;gap:6px">
+          <button class="clear-btn" onclick="limpiarMovimientos()">Limpiar</button>
+          <button class="add-btn" onclick="abrirAgregarMov()">+ Agregar compra</button>
+        </div>
+      </div>
+      <div id="mov-corte-lbl" style="font-size:11px;color:var(--text2);margin:-6px 0 10px 0;line-height:1.4"></div>
+      <div id="tdc-filtro-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
+      <div id="mov-totales-box" style="margin-bottom:12px"></div>
+      <div id="mov-list"><div class="empty"><div class="empty-icon">—</div>Sin compras registradas — agrega la primera</div></div>
+    </div>
+    <div class="card" style="border-color:rgba(79,142,247,.3);background:rgba(79,142,247,.04)">
+      <div class="tot-row" style="padding:0">
+        <div class="tot-l">Total Compras TDC este periodo (solo lo mío)</div>
+        <div class="tot-a neg" id="tot-tdc">$0.00</div>
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:5px" id="tdc-breakdown">—</div>
+    </div>
+  </div>
+
+  <!-- ══ TDC (Estado de Cuenta por Tarjeta) ══ -->
+  <div class="scr" id="scr-tdc">
+    <div class="desktop-topbar" style="display:none">
+      <div class="dt-title">Tarjetas de Crédito — Estado de Cuenta</div>
+      <div class="dt-date" id="dt-date-tdc">—</div>
     </div>
     <div id="tdc-cards-list"></div>
     <button class="btn btn-g" style="width:100%;margin-bottom:12px" onclick="openModal('m-tar')">+ Agregar tarjeta</button>
     <div class="card">
       <div class="card-hdr">
-        <span>📋 Movimientos del periodo</span>
-        <div style="display:flex;gap:6px">
-          <button class="clear-btn" onclick="limpiarMovimientos()">Limpiar</button>
-          <button class="add-btn" onclick="abrirAgregarMov()">+ mov</button>
-        </div>
+        <span>🏦 Estado de cuenta por corte</span>
+        <button class="add-btn" id="btn-ajuste-corte" onclick="abrirAjusteCorteTdc()" style="display:none">⚙️ Ajustar fechas de este corte</button>
       </div>
-      <!-- Label del corte que se está viendo -->
-      <div id="mov-corte-lbl" style="font-size:11px;color:var(--text2);margin:-6px 0 10px 0;line-height:1.4"></div>
-      <!-- Filtro por tarjeta -->
-      <div id="tdc-filtro-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
-      <!-- Totales por tarjeta (filtrada) o globales (todas) -->
-      <div id="mov-totales-box" style="margin-bottom:12px"></div>
-      <div id="mov-list"><div class="empty"><div class="empty-icon">—</div>Sin movimientos — agrega el primero</div></div>
-      <div class="sec-l">MSI activos <span style="font-size:10px;color:var(--text3)">(solo lectura — gestiona en pestaña MSI)</span></div>
-      <div id="msi-list"></div>
-    </div>
-    <div class="card" style="border-color:rgba(167,139,250,.3);background:rgba(167,139,250,.04)">
-      <div class="tot-row" style="padding:0">
-        <div class="tot-l">Total a pagar este periodo (solo lo mío)</div>
-        <div class="tot-a neg" id="tot-tdc">$0.00</div>
+      <div id="tdc-edo-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
+      <div class="pnav" id="tdc-corte-nav" style="display:none;margin-bottom:12px">
+        <button class="pnav-btn" onclick="navCorteTdc(-1)">‹</button>
+        <div class="pnav-label" id="tdc-corte-lbl">—</div>
+        <button class="pnav-btn" onclick="navCorteTdc(1)">›</button>
       </div>
-      <div style="font-size:10px;color:var(--text3);margin-top:5px" id="tdc-breakdown">—</div>
+      <div id="tdc-edo-resumen" style="margin-bottom:12px"></div>
+      <div id="tdc-edo-lista"></div>
+      <div id="msi-list" style="display:none"></div>
     </div>
   </div>
 
@@ -443,8 +471,13 @@
     </div>
     <div class="card">
       <div class="card-hdr">
-        <span>MSI Activos</span>
+        <span>Meses Sin Intereses</span>
         <button class="add-btn" onclick="abrirAgregarMsi()">+ Agregar MSI</button>
+      </div>
+      <!-- Sub-pestañas Activos / Finalizados -->
+      <div class="modo-sw" style="margin-bottom:12px">
+        <button class="msw-btn on" id="msi-tab-activos" onclick="setMsiVista('activos')">Activos</button>
+        <button class="msw-btn" id="msi-tab-finalizados" onclick="setMsiVista('finalizados')">Finalizados (Historial)</button>
       </div>
       <!-- Filtro por tarjeta -->
       <div id="msi-filtro-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
@@ -452,7 +485,7 @@
       <div id="msi-totales-box" style="margin-bottom:12px"></div>
       <div id="msi-section-list"><div class="empty">Sin MSI registrados</div></div>
     </div>
-    <div class="card" style="border-color:rgba(167,139,250,.3);background:rgba(167,139,250,.04)">
+    <div class="card" id="msi-footer-card" style="border-color:rgba(167,139,250,.3);background:rgba(167,139,250,.04)">
       <div class="tot-row" style="padding:0">
         <div class="tot-l">Total MSI este periodo</div>
         <div class="tot-a neg" id="tot-msi-section">$0.00</div>
